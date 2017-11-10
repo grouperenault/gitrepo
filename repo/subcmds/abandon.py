@@ -15,10 +15,10 @@
 
 from __future__ import print_function
 import sys
-from command import Command
+from repo.command import Command
 from collections import defaultdict
-from git_command import git
-from progress import Progress
+from repo.git_command import git
+from repo.progress import Progress
 
 class Abandon(Command):
   common = True

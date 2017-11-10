@@ -16,7 +16,7 @@
 import os
 import sys
 
-import pager
+from repo import pager
 
 COLORS = {None: -1,
           'normal': -1,

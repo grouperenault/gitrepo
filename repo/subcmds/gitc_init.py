@@ -17,11 +17,11 @@ from __future__ import print_function
 import os
 import sys
 
-import gitc_utils
-from command import GitcAvailableCommand
-from manifest_xml import GitcManifest
-from subcmds import init
-import wrapper
+from repo import gitc_utils
+from repo.command import GitcAvailableCommand
+from repo.manifest_xml import GitcManifest
+from repo.subcmds import init
+from repo import wrapper
 
 
 class GitcInit(init.Init, GitcAvailableCommand):

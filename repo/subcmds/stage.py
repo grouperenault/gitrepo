@@ -16,9 +16,9 @@
 from __future__ import print_function
 import sys
 
-from color import Coloring
-from command import InteractiveCommand
-from git_command import GitCommand
+from repo.color import Coloring
+from repo.command import InteractiveCommand
+from repo.git_command import GitCommand
 
 class _ProjectList(Coloring):
   def __init__(self, gc):

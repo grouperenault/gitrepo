@@ -1,3 +1,8 @@
+build
+dist
+e2e
 *.pyc
 .repopickle_*
 /repoc
+.vscode
+git_repo.egg-info

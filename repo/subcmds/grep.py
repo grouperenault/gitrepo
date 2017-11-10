@@ -15,9 +15,9 @@
 
 from __future__ import print_function
 import sys
-from color import Coloring
-from command import PagedCommand
-from git_command import git_require, GitCommand
+from repo.color import Coloring
+from repo.command import PagedCommand
+from repo.git_command import git_require, GitCommand
 
 class GrepColoring(Coloring):
   def __init__(self, config):

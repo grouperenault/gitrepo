@@ -14,8 +14,8 @@
 # limitations under the License.
 
 from __future__ import print_function
-from color import Coloring
-from command import PagedCommand
+from repo.color import Coloring
+from repo.command import PagedCommand
 
 
 class Overview(PagedCommand):

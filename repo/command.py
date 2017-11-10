@@ -19,9 +19,9 @@ import platform
 import re
 import sys
 
-from event_log import EventLog
-from error import NoSuchProjectError
-from error import InvalidProjectGroupsError
+from repo.event_log import EventLog
+from repo.error import NoSuchProjectError
+from repo.error import InvalidProjectGroupsError
 
 
 class Command(object):

@@ -20,10 +20,10 @@ import subprocess
 import tempfile
 from signal import SIGTERM
 
-from error import GitError
-import platform_utils
-from trace import REPO_TRACE, IsTrace, Trace
-from wrapper import Wrapper
+from repo.error import GitError
+from repo import platform_utils
+from repo.trace import REPO_TRACE, IsTrace, Trace
+from repo import wrapper
 
 GIT = 'git'
 MIN_GIT_VERSION = (1, 5, 4)
@@ -92,7 +92,7 @@ class _GitCall(object):
     global _git_version
     if _git_version is None:
       ver_str = git.version()
-      _git_version = Wrapper().ParseGitVersion(ver_str)
+      _git_version = wrapper.Wrapper().ParseGitVersion(ver_str)
       if _git_version is None:
         print('fatal: "%s" unsupported' % ver_str, file=sys.stderr)
         sys.exit(1)

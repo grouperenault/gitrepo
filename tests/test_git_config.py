@@ -1,7 +1,7 @@
 import os
 import unittest
 
-import git_config
+from repo import git_config
 
 def fixture(*paths):
   """Return a path relative to test/fixtures.

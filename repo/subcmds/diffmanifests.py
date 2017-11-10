@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from color import Coloring
-from command import PagedCommand
-from manifest_xml import XmlManifest
+from repo.color import Coloring
+from repo.command import PagedCommand
+from repo.manifest_xml import XmlManifest
 
 class _Coloring(Coloring):
   def __init__(self, config):

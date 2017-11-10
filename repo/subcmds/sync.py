@@ -25,7 +25,7 @@ import sys
 import tempfile
 import time
 
-from pyversion import is_python3
+from repo.pyversion import is_python3
 if is_python3():
   import http.cookiejar as cookielib
   import urllib.error
@@ -63,20 +63,20 @@ try:
 except ImportError:
   multiprocessing = None
 
-import event_log
-from git_command import GIT, git_require
-from git_config import GetUrlCookieFile
-from git_refs import R_HEADS, HEAD
-import gitc_utils
-from project import Project
-from project import RemoteSpec
-from command import Command, MirrorSafeCommand
-from error import RepoChangedException, GitError, ManifestParseError
-import platform_utils
-from project import SyncBuffer
-from progress import Progress
-from wrapper import Wrapper
-from manifest_xml import GitcManifest
+from repo import event_log
+from repo.git_command import GIT, git_require
+from repo.git_config import GetUrlCookieFile
+from repo.git_refs import R_HEADS, HEAD
+from repo import gitc_utils
+from repo.project import Project
+from repo.project import RemoteSpec
+from repo.command import Command, MirrorSafeCommand
+from repo.error import RepoChangedException, GitError, ManifestParseError
+from repo import platform_utils
+from repo.project import SyncBuffer
+from repo.progress import Progress
+from repo import wrapper
+from repo.manifest_xml import GitcManifest
 
 _ONE_DAY_S = 24 * 60 * 60
 
@@ -717,14 +717,8 @@ later is required to fix a server side protocol bug.
           print('error: failed to remove existing smart sync override manifest: %s' %
                 e, file=sys.stderr)
 
-    rp = self.manifest.repoProject
-    rp.PreSync()
-
     mp = self.manifest.manifestProject
     mp.PreSync()
-
-    if opt.repo_upgraded:
-      _PostRepoUpgrade(self.manifest, quiet=opt.quiet)
 
     if not opt.local_only:
       start = time.time()
@@ -792,14 +786,10 @@ later is required to fix a server side protocol bug.
     self._fetch_times = _FetchTimes(self.manifest)
     if not opt.local_only:
       to_fetch = []
-      now = time.time()
-      if _ONE_DAY_S <= (now - rp.LastFetch):
-        to_fetch.append(rp)
       to_fetch.extend(all_projects)
       to_fetch.sort(key=self._fetch_times.Get, reverse=True)
 
       fetched = self._Fetch(to_fetch, opt)
-      _PostRepoFetch(rp, opt.no_repo_verify)
       if opt.network_only:
         # bail out now; the rest touches the working tree
         return
@@ -851,32 +841,6 @@ later is required to fix a server side protocol bug.
     # it now...
     if self.manifest.notice:
       print(self.manifest.notice)
-
-def _PostRepoUpgrade(manifest, quiet=False):
-  wrapper = Wrapper()
-  if wrapper.NeedSetupGnuPG():
-    wrapper.SetupGnuPG(quiet)
-  for project in manifest.projects:
-    if project.Exists:
-      project.PostRepoUpgrade()
-
-def _PostRepoFetch(rp, no_repo_verify=False, verbose=False):
-  if rp.HasChanges:
-    print('info: A new version of repo is available', file=sys.stderr)
-    print(file=sys.stderr)
-    if no_repo_verify or _VerifyTag(rp):
-      syncbuf = SyncBuffer(rp.config)
-      rp.Sync_LocalHalf(syncbuf)
-      if not syncbuf.Finish():
-        sys.exit(1)
-      print('info: Restarting repo with latest version', file=sys.stderr)
-      raise RepoChangedException(['--repo-upgraded'])
-    else:
-      print('warning: Skipped upgrade to unverified version', file=sys.stderr)
-  else:
-    if verbose:
-      print('repo version %s is current' % rp.work_git.describe(HEAD),
-            file=sys.stderr)
 
 def _VerifyTag(project):
   gpg_dir = os.path.expanduser('~/.repoconfig/gnupg')

@@ -22,9 +22,9 @@ import signal
 import sys
 import subprocess
 
-from color import Coloring
-from command import Command, MirrorSafeCommand
-import platform_utils
+from repo.color import Coloring
+from repo.command import Command, MirrorSafeCommand
+from repo import platform_utils
 
 _CAN_COLOR = [
   'branch',

@@ -19,7 +19,7 @@ import select
 import subprocess
 import sys
 
-import platform_utils
+from repo import platform_utils
 
 active = False
 pager_process = None

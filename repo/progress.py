@@ -16,7 +16,8 @@
 import os
 import sys
 from time import time
-from trace import IsTrace
+
+from repo.trace import IsTrace
 
 _NOT_TTY = not os.isatty(2)
 

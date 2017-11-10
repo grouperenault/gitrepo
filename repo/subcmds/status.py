@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from command import PagedCommand
+from repo.command import PagedCommand
 
 try:
   import threading as _threading
@@ -25,7 +25,7 @@ import glob
 import itertools
 import os
 
-from color import Coloring
+from repo.color import Coloring
 
 class Status(PagedCommand):
   common = True

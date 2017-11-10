@@ -28,19 +28,19 @@ import tempfile
 import time
 import traceback
 
-from color import Coloring
-from git_command import GitCommand, git_require
-from git_config import GitConfig, IsId, GetSchemeFromUrl, GetUrlCookieFile, \
+from repo.color import Coloring
+from repo.git_command import GitCommand, git_require
+from repo.git_config import GitConfig, IsId, GetSchemeFromUrl, GetUrlCookieFile, \
     ID_RE
-from error import GitError, HookError, UploadError, DownloadError
-from error import ManifestInvalidRevisionError
-from error import NoManifestException
-import platform_utils
-from trace import IsTrace, Trace
+from repo.error import GitError, HookError, UploadError, DownloadError
+from repo.error import ManifestInvalidRevisionError
+from repo.error import NoManifestException
+from repo import platform_utils
+from repo.trace import IsTrace, Trace
 
-from git_refs import GitRefs, HEAD, R_HEADS, R_TAGS, R_PUB, R_M
+from repo.git_refs import GitRefs, HEAD, R_HEADS, R_TAGS, R_PUB, R_M
 
-from pyversion import is_python3
+from repo.pyversion import is_python3
 if is_python3():
   import urllib.parse
 else:

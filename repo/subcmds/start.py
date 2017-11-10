@@ -17,12 +17,12 @@ from __future__ import print_function
 import os
 import sys
 
-from command import Command
-from git_config import IsImmutable
-from git_command import git
-import gitc_utils
-from progress import Progress
-from project import SyncBuffer
+from repo.command import Command
+from repo.git_config import IsImmutable
+from repo.git_command import git
+from repo import gitc_utils
+from repo.progress import Progress
+from repo.project import SyncBuffer
 
 class Start(Command):
   common = True

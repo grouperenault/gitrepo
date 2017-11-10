@@ -17,8 +17,8 @@ from __future__ import print_function
 import re
 import sys
 
-from command import Command
-from error import GitError
+from repo.command import Command
+from repo.error import GitError
 
 CHANGE_RE = re.compile(r'^([1-9][0-9]*)(?:[/\.-]([1-9][0-9]*))?$')
 

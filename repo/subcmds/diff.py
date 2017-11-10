@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from command import PagedCommand
+from repo.command import PagedCommand
 
 class Diff(PagedCommand):
   common = True

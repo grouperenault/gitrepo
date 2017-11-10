@@ -18,13 +18,13 @@ import copy
 import re
 import sys
 
-from command import InteractiveCommand
-from editor import Editor
-from error import HookError, UploadError
-from git_command import GitCommand
-from project import RepoHook
+from repo.command import InteractiveCommand
+from repo.editor import Editor
+from repo.error import HookError, UploadError
+from repo.git_command import GitCommand
+from repo.project import RepoHook
 
-from pyversion import is_python3
+from repo.pyversion import is_python3
 # pylint:disable=W0622
 if not is_python3():
   input = raw_input

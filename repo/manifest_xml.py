@@ -20,7 +20,7 @@ import re
 import sys
 import xml.dom.minidom
 
-from pyversion import is_python3
+from repo.pyversion import is_python3
 if is_python3():
   import urllib.parse
 else:
@@ -29,12 +29,12 @@ else:
   urllib = imp.new_module('urllib')
   urllib.parse = urlparse
 
-import gitc_utils
-from git_config import GitConfig
-from git_refs import R_HEADS, HEAD
-import platform_utils
-from project import RemoteSpec, Project, MetaProject
-from error import ManifestParseError, ManifestInvalidRevisionError
+from repo import gitc_utils
+from repo.git_config import GitConfig
+from repo.git_refs import R_HEADS, HEAD
+from repo import platform_utils
+from repo.project import RemoteSpec, Project, MetaProject
+from repo.error import ManifestParseError, ManifestInvalidRevisionError
 
 MANIFEST_FILE_NAME = 'manifest.xml'
 LOCAL_MANIFEST_NAME = 'local_manifest.xml'

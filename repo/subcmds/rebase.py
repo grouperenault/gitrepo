@@ -16,8 +16,8 @@
 from __future__ import print_function
 import sys
 
-from command import Command
-from git_command import GitCommand
+from repo.command import Command
+from repo.git_command import GitCommand
 
 class Rebase(Command):
   common = True

@@ -19,7 +19,7 @@ import platform
 import re
 import sys
 
-from pyversion import is_python3
+from repo.pyversion import is_python3
 if is_python3():
   import urllib.parse
 else:
@@ -28,13 +28,13 @@ else:
   urllib = imp.new_module('urllib')
   urllib.parse = urlparse
 
-from color import Coloring
-from command import InteractiveCommand, MirrorSafeCommand
-from error import ManifestParseError
-from project import SyncBuffer
-from git_config import GitConfig
-from git_command import git_require, MIN_GIT_VERSION
-import platform_utils
+from repo.color import Coloring
+from repo.command import InteractiveCommand, MirrorSafeCommand
+from repo.error import ManifestParseError
+from repo.project import SyncBuffer
+from repo.git_config import GitConfig
+from repo.git_command import git_require, MIN_GIT_VERSION
+from repo import platform_utils
 
 class Init(InteractiveCommand, MirrorSafeCommand):
   common = True

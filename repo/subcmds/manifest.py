@@ -17,7 +17,7 @@ from __future__ import print_function
 import os
 import sys
 
-from command import PagedCommand
+from repo.command import PagedCommand
 
 class Manifest(PagedCommand):
   common = False

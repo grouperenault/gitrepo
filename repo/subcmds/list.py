@@ -16,7 +16,7 @@
 from __future__ import print_function
 import sys
 
-from command import Command, MirrorSafeCommand
+from repo.command import Command, MirrorSafeCommand
 
 class List(Command, MirrorSafeCommand):
   common = True

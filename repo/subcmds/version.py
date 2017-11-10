@@ -15,9 +15,9 @@
 
 from __future__ import print_function
 import sys
-from command import Command, MirrorSafeCommand
-from git_command import git
-from git_refs import HEAD
+from repo.command import Command, MirrorSafeCommand
+from repo.git_command import git
+from repo.git_refs import HEAD
 
 class Version(Command, MirrorSafeCommand):
   wrapper_version = None

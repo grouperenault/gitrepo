@@ -23,7 +23,7 @@ import os
 import sys
 import time
 
-from pyversion import is_python3
+from repo.pyversion import is_python3
 if is_python3():
   import urllib.request
 else:
@@ -36,29 +36,29 @@ try:
 except ImportError:
   kerberos = None
 
-from color import SetDefaultColoring
-import event_log
-from trace import SetTrace
-from git_command import git, GitCommand
-from git_config import init_ssh, close_ssh
-from command import InteractiveCommand
-from command import MirrorSafeCommand
-from command import GitcAvailableCommand, GitcClientCommand
-from subcmds.version import Version
-from editor import Editor
-from error import DownloadError
-from error import InvalidProjectGroupsError
-from error import ManifestInvalidRevisionError
-from error import ManifestParseError
-from error import NoManifestException
-from error import NoSuchProjectError
-from error import RepoChangedException
-import gitc_utils
-from manifest_xml import GitcManifest, XmlManifest
-from pager import RunPager, TerminatePager
-from wrapper import WrapperPath, Wrapper
+from repo.color import SetDefaultColoring
+from repo import event_log
+from repo.trace import SetTrace
+from repo.git_command import git, GitCommand
+from repo.git_config import init_ssh, close_ssh
+from repo.command import InteractiveCommand
+from repo.command import MirrorSafeCommand
+from repo.command import GitcAvailableCommand, GitcClientCommand
+from repo.subcmds.version import Version
+from repo.editor import Editor
+from repo.error import DownloadError
+from repo.error import InvalidProjectGroupsError
+from repo.error import ManifestInvalidRevisionError
+from repo.error import ManifestParseError
+from repo.error import NoManifestException
+from repo.error import NoSuchProjectError
+from repo.error import RepoChangedException
+from repo import gitc_utils
+from repo.manifest_xml import GitcManifest, XmlManifest
+from repo.pager import RunPager, TerminatePager
+from repo.wrapper import WrapperPath, Wrapper
 
-from subcmds import all_commands
+from repo.subcmds import all_commands
 
 if not is_python3():
   # pylint:disable=W0622
@@ -497,26 +497,44 @@ def init_http():
     handlers.append(urllib.request.HTTPSHandler(debuglevel=1))
   urllib.request.install_opener(urllib.request.build_opener(*handlers))
 
+REPODIR = '.repo'                # name of repo's private directory
+
+def _FindRepo():
+  """Look for a repo installation, starting at the current directory.
+  """
+  curdir = os.getcwd()
+  repo = None
+
+  olddir = None
+  while curdir != '/' \
+          and curdir != olddir \
+          and not repo:
+    repo = os.path.join(curdir, REPODIR)
+    if not os.path.isdir(repo):
+      repo = None
+      olddir = curdir
+      curdir = os.path.dirname(curdir)
+  return repo
+
+def _MkRepoDir(repodir):
+  try:
+    os.mkdir(repodir)
+  except OSError as e:
+    if e.errno != errno.EEXIST:
+      _print('fatal: cannot make %s directory: %s'
+             % (repodir, e.strerror), file=sys.stderr)
+      # Don't raise CloneFailure; that would delete the
+      # name. Instead exit immediately.
+      #
+      sys.exit(1)
+
 def _Main(argv):
   result = 0
-
-  opt = optparse.OptionParser(usage="repo wrapperinfo -- ...")
-  opt.add_option("--repo-dir", dest="repodir",
-                 help="path to .repo/")
-  opt.add_option("--wrapper-version", dest="wrapper_version",
-                 help="version of the wrapper script")
-  opt.add_option("--wrapper-path", dest="wrapper_path",
-                 help="location of the wrapper script")
-  _PruneOptions(argv, opt)
-  opt, argv = opt.parse_args(argv)
-
-  _CheckWrapperVersion(opt.wrapper_version, opt.wrapper_path)
-  _CheckRepoDir(opt.repodir)
-
-  Version.wrapper_version = opt.wrapper_version
-  Version.wrapper_path = opt.wrapper_path
-
-  repo = _Repo(opt.repodir)
+  repodir = _FindRepo()
+  if repodir is None:
+    repodir = os.path.join(os.getcwd(), REPODIR)
+    _MkRepoDir(repodir)
+  repo = _Repo(repodir)
   try:
     try:
       init_ssh()
@@ -543,7 +561,10 @@ def _Main(argv):
       result = 128
 
   TerminatePager()
-  sys.exit(result)
+  return result
+
+def main():
+  return _Main(sys.argv[1:])
 
 if __name__ == '__main__':
-  _Main(sys.argv[1:])
+  sys.exit(_Main(sys.argv[1:]))

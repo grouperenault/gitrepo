@@ -16,10 +16,10 @@
 from __future__ import print_function
 import sys
 
-from command import Command, GitcClientCommand
-import platform_utils
+from repo.command import Command, GitcClientCommand
+from repo import platform_utils
 
-from pyversion import is_python3
+from repo.pyversion import is_python3
 if not is_python3():
   # pylint:disable=W0622
   input = raw_input

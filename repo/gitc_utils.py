@@ -20,11 +20,11 @@ import re
 import sys
 import time
 
-import git_command
-import git_config
-import wrapper
+from repo import git_command
+from repo import git_config
+from repo import wrapper
 
-from error import ManifestParseError
+from repo.error import ManifestParseError
 
 NUM_BATCH_RETRIEVE_REVISIONID = 32
 

@@ -16,7 +16,7 @@
 import os
 import unittest
 
-import wrapper
+from repo import wrapper
 
 def fixture(*paths):
   """Return a path relative to tests/fixtures.

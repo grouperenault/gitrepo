@@ -18,9 +18,9 @@ import re
 import sys
 from formatter import AbstractFormatter, DumbWriter
 
-from color import Coloring
-from command import PagedCommand, MirrorSafeCommand, GitcAvailableCommand, GitcClientCommand
-import gitc_utils
+from repo.color import Coloring
+from repo.command import PagedCommand, MirrorSafeCommand, GitcAvailableCommand, GitcClientCommand
+from repo import gitc_utils
 
 class Help(PagedCommand, MirrorSafeCommand):
   common = False

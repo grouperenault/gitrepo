@@ -29,7 +29,7 @@ except ImportError:
   import dummy_threading as _threading
 import time
 
-from pyversion import is_python3
+from repo.pyversion import is_python3
 if is_python3():
   import urllib.request
   import urllib.error
@@ -41,18 +41,18 @@ else:
   urllib.error = urllib2
 
 from signal import SIGTERM
-from error import GitError, UploadError
-import platform_utils
-from trace import Trace
+from repo.error import GitError, UploadError
+from repo import platform_utils
+from repo.trace import Trace
 if is_python3():
   from http.client import HTTPException
 else:
   from httplib import HTTPException
 
-from git_command import GitCommand
-from git_command import ssh_sock
-from git_command import terminate_ssh_clients
-from git_refs import R_CHANGES, R_HEADS, R_TAGS
+from repo.git_command import GitCommand
+from repo.git_command import ssh_sock
+from repo.git_command import terminate_ssh_clients
+from repo.git_refs import R_CHANGES, R_HEADS, R_TAGS
 
 ID_RE = re.compile(r'^[0-9a-f]{40}$')
 

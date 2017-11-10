@@ -15,8 +15,8 @@
 
 from __future__ import print_function
 import sys
-from color import Coloring
-from command import Command
+from repo.color import Coloring
+from repo.command import Command
 
 class BranchColoring(Coloring):
   def __init__(self, config):
