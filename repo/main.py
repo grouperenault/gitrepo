@@ -132,7 +132,6 @@ class _Repo(object):
       print("repo: '%s' is not a repo command.  See 'repo help'." % name,
             file=sys.stderr)
       return 1
-
     cmd.repodir = self.repodir
     cmd.manifest = XmlManifest(cmd.repodir)
     cmd.gitc_manifest = None
