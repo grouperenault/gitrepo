@@ -71,7 +71,7 @@ class EventLog(object):
       A dictionary of the event added to the log.
     """
     event = {
-        'id': (kind, self._next_id.next()),
+        'id': (kind, next(self._next_id)),
         'name': name,
         'task_name': task_name,
         'start_time': start,

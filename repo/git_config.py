@@ -306,7 +306,7 @@ class GitConfig(object):
     d = self._do('--null', '--list')
     if d is None:
       return c
-    for line in d.decode('utf-8').rstrip('\0').split('\0'):  # pylint: disable=W1401
+    for line in d.rstrip('\0').split('\0'):  # pylint: disable=W1401
                                                              # Backslash is not anomalous
       if '\n' in line:
         key, val = line.split('\n', 1)
@@ -330,7 +330,10 @@ class GitConfig(object):
                    capture_stdout = True,
                    capture_stderr = True)
     if p.Wait() == 0:
-      return p.stdout
+      ret = p.stdout
+      if isinstance(ret, bytes):
+        ret = ret.decode('utf-8')
+      return ret
     else:
       GitError('git config %s: %s' % (str(args), p.stderr))
 
