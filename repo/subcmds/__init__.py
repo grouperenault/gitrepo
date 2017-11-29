@@ -14,11 +14,11 @@
 # limitations under the License.
 
 import os
-from pkg_resources import iter_entry_points
+import pkg_resources
 
 all_commands = {}
-for ep in iter_entry_points("repo.subcmds"):
-  cmd = ep.load()()
+for ep in pkg_resources.iter_entry_points("repo.subcmds"):
+  cmd = ep.load(require=False)()
   cmdname = ep.name
   cmd.NAME = cmdname
   all_commands[cmdname] = cmd
