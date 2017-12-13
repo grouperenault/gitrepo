@@ -105,6 +105,8 @@ def _ProjectHooks():
   if _project_hook_list is None:
     d = platform_utils.realpath(os.path.abspath(os.path.dirname(__file__)))
     d = os.path.join(d, 'hooks')
+    if not os.path.exists(d):
+      return []
     _project_hook_list = [os.path.join(d, x) for x in os.listdir(d)]
   return _project_hook_list
 
