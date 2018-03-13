@@ -2662,7 +2662,7 @@ class Project(object):
                      capture_stdout=True,
                      capture_stderr=True)
       try:
-        out = p.process.stdout.read()
+        out = p.process.stdout.read().decode()
         r = {}
         if out:
           out = iter(out[:-1].split('\0'))  # pylint: disable=W1401
