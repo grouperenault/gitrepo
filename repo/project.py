@@ -662,6 +662,7 @@ class Project(object):
                groups=None,
                sync_c=False,
                sync_s=False,
+               sync_tags=True,
                clone_depth=None,
                upstream=None,
                parent=None,
@@ -685,6 +686,7 @@ class Project(object):
       groups: The `groups` attribute of manifest.xml's project element.
       sync_c: The `sync-c` attribute of manifest.xml's project element.
       sync_s: The `sync-s` attribute of manifest.xml's project element.
+      sync_tags: The `sync-tags` attribute of manifest.xml's project element.
       upstream: The `upstream` attribute of manifest.xml's project element.
       parent: The parent Project object.
       is_derived: False if the project was explicitly defined in the manifest;
@@ -717,6 +719,7 @@ class Project(object):
     self.groups = groups
     self.sync_c = sync_c
     self.sync_s = sync_s
+    self.sync_tags = sync_tags
     self.clone_depth = clone_depth
     self.upstream = upstream
     self.parent = parent
@@ -1290,6 +1293,10 @@ class Project(object):
         current_branch_only = False
       elif self.manifest.default.sync_c:
         current_branch_only = True
+
+    if not no_tags:
+      if not self.sync_tags:
+        no_tags = True
 
     if self.clone_depth:
       depth = self.clone_depth
@@ -1882,6 +1889,8 @@ class Project(object):
         result.extend(project.GetDerivedSubprojects())
         continue
 
+      if url.startswith('..'):
+        url = urllib.parse.urljoin("%s/" % self.remote.url, url)
       remote = RemoteSpec(self.remote.name,
                           url=url,
                           pushUrl=self.remote.pushUrl,
@@ -1900,6 +1909,7 @@ class Project(object):
                            groups=self.groups,
                            sync_c=self.sync_c,
                            sync_s=self.sync_s,
+                           sync_tags=self.sync_tags,
                            parent=self,
                            is_derived=True)
       result.append(subproject)
