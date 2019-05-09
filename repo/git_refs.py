@@ -15,7 +15,7 @@
 
 import os
 from trace import Trace
-import platform_utils
+from repo import platform_utils
 
 HEAD      = 'HEAD'
 R_CHANGES = 'refs/changes/'
