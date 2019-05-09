@@ -59,6 +59,7 @@ class _Default(object):
 
   revisionExpr = None
   destBranchExpr = None
+  upstreamExpr = None
   remote = None
   sync_j = 1
   sync_c = False
@@ -230,6 +231,9 @@ class XmlManifest(object):
     if d.destBranchExpr:
       have_default = True
       e.setAttribute('dest-branch', d.destBranchExpr)
+    if d.upstreamExpr:
+      have_default = True
+      e.setAttribute('upstream', d.upstreamExpr)
     if d.sync_j > 1:
       have_default = True
       e.setAttribute('sync-j', '%d' % d.sync_j)
@@ -295,7 +299,8 @@ class XmlManifest(object):
         revision = self.remotes[p.remote.orig_name].revision or d.revisionExpr
         if not revision or revision != p.revisionExpr:
           e.setAttribute('revision', p.revisionExpr)
-        if p.upstream and p.upstream != p.revisionExpr:
+        if (p.upstream and (p.upstream != p.revisionExpr or
+                            p.upstream != d.upstreamExpr)):
           e.setAttribute('upstream', p.upstream)
 
       if p.dest_branch and p.dest_branch != d.destBranchExpr:
@@ -441,7 +446,7 @@ class XmlManifest(object):
 
       local_dir = os.path.abspath(os.path.join(self.repodir, LOCAL_MANIFESTS_DIR_NAME))
       try:
-        for local_file in sorted(os.listdir(local_dir)):
+        for local_file in sorted(platform_utils.listdir(local_dir)):
           if local_file.endswith('.xml'):
             local = os.path.join(local_dir, local_file)
             nodes.append(self._ParseManifestXml(local, self.repodir))
@@ -478,8 +483,7 @@ class XmlManifest(object):
       raise ManifestParseError("no <manifest> in %s" % (path,))
 
     nodes = []
-    for node in manifest.childNodes:  # pylint:disable=W0631
-                                      # We only get here if manifest is initialised
+    for node in manifest.childNodes:
       if node.nodeName == 'include':
         name = self._reqatt(node, 'name')
         fp = os.path.join(include_root, name)
@@ -571,12 +575,15 @@ class XmlManifest(object):
         groups = node.getAttribute('groups')
         if groups:
           groups = self._ParseGroups(groups)
+        revision = node.getAttribute('revision')
 
         for p in self._projects[name]:
           if path and p.relpath != path:
             continue
           if groups:
             p.groups.extend(groups)
+          if revision:
+            p.revisionExpr = revision
       if node.nodeName == 'repo-hooks':
         # Get the name of the project and the (space-separated) list of enabled.
         repo_hooks_project = self._reqatt(node, 'in-project')
@@ -691,6 +698,7 @@ class XmlManifest(object):
       d.revisionExpr = None
 
     d.destBranchExpr = node.getAttribute('dest-branch') or None
+    d.upstreamExpr = node.getAttribute('upstream') or None
 
     sync_j = node.getAttribute('sync-j')
     if sync_j == '' or sync_j is None:
@@ -827,7 +835,7 @@ class XmlManifest(object):
 
     dest_branch = node.getAttribute('dest-branch') or self._default.destBranchExpr
 
-    upstream = node.getAttribute('upstream')
+    upstream = node.getAttribute('upstream') or self._default.upstreamExpr
 
     groups = ''
     if node.hasAttribute('groups'):

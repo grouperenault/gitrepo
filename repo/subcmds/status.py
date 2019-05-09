@@ -26,6 +26,7 @@ import itertools
 import os
 
 from repo.color import Coloring
+from repo import platform_utils
 
 class Status(PagedCommand):
   common = True
@@ -49,8 +50,7 @@ includes deeper items.  For example, if dir/subdir/proj1 and
 dir/subdir/proj2 are repo projects, dir/subdir/proj3 will be shown
 if it is not known to repo.
 
-Status Display
---------------
+# Status Display
 
 The status display is organized into three columns of information,
 for example if the file 'subcmds/status.py' is modified in the
@@ -116,7 +116,7 @@ the following meanings:
     """find 'dirs' that are present in 'proj_dirs_parents' but not in 'proj_dirs'"""
     status_header = ' --\t'
     for item in dirs:
-      if not os.path.isdir(item):
+      if not platform_utils.isdir(item):
         outstring.append(''.join([status_header, item]))
         continue
       if item in proj_dirs:

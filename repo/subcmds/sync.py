@@ -155,8 +155,7 @@ exist locally.
 The --prune option can be used to remove any refs that no longer
 exist on the remote.
 
-SSH Connections
----------------
+# SSH Connections
 
 If at least one project remote URL uses an SSH connection (ssh://,
 git+ssh://, or user@host:path syntax) repo will automatically
@@ -170,8 +169,7 @@ environment variable to 'ssh'.  For example:
   export GIT_SSH=ssh
   %prog
 
-Compatibility
-~~~~~~~~~~~~~
+# Compatibility
 
 This feature is automatically disabled on Windows, due to the lack
 of UNIX domain socket support.
@@ -476,8 +474,8 @@ later is required to fix a server side protocol bug.
     # so rmtree works.
     try:
       platform_utils.rmtree(os.path.join(path, '.git'))
-    except OSError:
-      print('Failed to remove %s' % os.path.join(path, '.git'), file=sys.stderr)
+    except OSError as e:
+      print('Failed to remove %s (%s)' % (os.path.join(path, '.git'), str(e)), file=sys.stderr)
       print('error: Failed to delete obsolete path %s' % path, file=sys.stderr)
       print('       remove manually, then run sync again', file=sys.stderr)
       return -1
@@ -486,12 +484,12 @@ later is required to fix a server side protocol bug.
     # another git project
     dirs_to_remove = []
     failed = False
-    for root, dirs, files in os.walk(path):
+    for root, dirs, files in platform_utils.walk(path):
       for f in files:
         try:
           platform_utils.remove(os.path.join(root, f))
-        except OSError:
-          print('Failed to remove %s' % os.path.join(root, f), file=sys.stderr)
+        except OSError as e:
+          print('Failed to remove %s (%s)' % (os.path.join(root, f), str(e)), file=sys.stderr)
           failed = True
       dirs[:] = [d for d in dirs
                  if not os.path.lexists(os.path.join(root, d, '.git'))]
@@ -501,14 +499,14 @@ later is required to fix a server side protocol bug.
       if platform_utils.islink(d):
         try:
           platform_utils.remove(d)
-        except OSError:
-          print('Failed to remove %s' % os.path.join(root, d), file=sys.stderr)
+        except OSError as e:
+          print('Failed to remove %s (%s)' % (os.path.join(root, d), str(e)), file=sys.stderr)
           failed = True
-      elif len(os.listdir(d)) == 0:
+      elif len(platform_utils.listdir(d)) == 0:
         try:
-          os.rmdir(d)
-        except OSError:
-          print('Failed to remove %s' % os.path.join(root, d), file=sys.stderr)
+          platform_utils.rmdir(d)
+        except OSError as e:
+          print('Failed to remove %s (%s)' % (os.path.join(root, d), str(e)), file=sys.stderr)
           failed = True
           continue
     if failed:
@@ -519,8 +517,8 @@ later is required to fix a server side protocol bug.
     # Try deleting parent dirs if they are empty
     project_dir = path
     while project_dir != self.manifest.topdir:
-      if len(os.listdir(project_dir)) == 0:
-        os.rmdir(project_dir)
+      if len(platform_utils.listdir(project_dir)) == 0:
+        platform_utils.rmdir(project_dir)
       else:
         break
       project_dir = os.path.dirname(project_dir)

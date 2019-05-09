@@ -53,8 +53,7 @@ Executes the same shell command in each project.
 The -r option allows running the command only on projects matching
 regex or wildcard expression.
 
-Output Formatting
------------------
+# Output Formatting
 
 The -p option causes '%prog' to bind pipes to the command's stdin,
 stdout and stderr streams, and pipe all output into a continuous
@@ -71,8 +70,7 @@ command produces output only on stderr.  Normally the -p option
 causes command output to be suppressed until the command produces
 at least one byte of output on stdout.
 
-Environment
------------
+# Environment
 
 pwd is the project's working directory.  If the current client is
 a mirror client, then pwd is the Git repository.
@@ -205,14 +203,12 @@ without iterating through the remaining projects.
           break
       else:
         cn = None
-      # pylint: disable=W0631
       if cn and cn in _CAN_COLOR:
         class ColorCmd(Coloring):
           def __init__(self, config, cmd):
             Coloring.__init__(self, config, cmd)
         if ColorCmd(self.manifest.manifestProject.config, cn).is_on:
           cmd.insert(cmd.index(cn) + 1, '--color')
-      # pylint: enable=W0631
 
     mirror = self.manifest.IsMirror
     rc = 0

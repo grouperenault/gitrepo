@@ -61,14 +61,18 @@ directory use as much data as possible from the local reference
 directory when fetching from the server. This will make the sync
 go a lot faster by reducing data traffic on the network.
 
+The --dissociate option can be used to borrow the objects from
+the directory specified with the --reference option only to reduce
+network transfer, and stop borrowing from them after a first clone
+is made by making necessary local copies of borrowed objects.
+
 The --no-clone-bundle option disables any attempt to use
 $URL/clone.bundle to bootstrap a new Git repository from a
 resumeable bundle file on a content delivery network. This
 may be necessary if there are problems with the local Python
 HTTP client or proxy configuration, but the Git binary works.
 
-Switching Manifest Branches
----------------------------
+# Switching Manifest Branches
 
 To switch to another manifest branch, `repo init -b otherbranch`
 may be used in an existing client.  However, as this only updates the
@@ -91,7 +95,7 @@ to update the working directory files.
     g.add_option('-b', '--manifest-branch',
                  dest='manifest_branch',
                  help='manifest branch or revision', metavar='REVISION')
-    g.add_option('-c', '--current-branch',
+    g.add_option('--current-branch',
                  dest='current_branch_only', action='store_true',
                  help='fetch only current manifest branch from server')
     g.add_option('-m', '--manifest-name',
@@ -104,6 +108,9 @@ to update the working directory files.
     g.add_option('--reference',
                  dest='reference',
                  help='location of mirror directory', metavar='DIR')
+    g.add_option('--dissociate',
+                 dest='dissociate', action='store_true',
+                 help='dissociate from reference mirrors after clone')
     g.add_option('--depth', type='int', default=None,
                  dest='depth',
                  help='create a shallow clone with given depth; see git clone')
@@ -175,7 +182,8 @@ to update the working directory files.
         if not mirrored_manifest_git.endswith(".git"):
           mirrored_manifest_git += ".git"
         if not os.path.exists(mirrored_manifest_git):
-          mirrored_manifest_git = os.path.join(opt.reference + '/.repo/manifests.git')
+          mirrored_manifest_git = os.path.join(opt.reference,
+                                               '.repo/manifests.git')
 
       m._InitGitDir(mirror_git=mirrored_manifest_git)
 
@@ -218,6 +226,9 @@ to update the working directory files.
 
     if opt.reference:
       m.config.SetString('repo.reference', opt.reference)
+
+    if opt.dissociate:
+      m.config.SetString('repo.dissociate', 'true')
 
     if opt.archive:
       if is_new:
@@ -401,7 +412,7 @@ to update the working directory files.
     git_require(MIN_GIT_VERSION, fail=True)
 
     if opt.reference:
-      opt.reference = os.path.abspath(os.path.expanduser(opt.reference))
+      opt.reference = os.path.expanduser(opt.reference)
 
     # Check this here, else manifest will be tagged "not new" and init won't be
     # possible anymore without removing the .repo/manifests directory.
