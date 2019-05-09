@@ -30,6 +30,7 @@ class RepoWrapperUnitTest(unittest.TestCase):
     """Load the wrapper module every time
     """
     wrapper._wrapper_module = None
+    wrapper._gitc_manifest_dir = None  # reset cache
     self.wrapper = wrapper.Wrapper()
 
   def test_get_gitc_manifest_dir_no_gitc(self):
