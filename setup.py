@@ -1,7 +1,10 @@
 from setuptools import setup, find_packages
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
 setup(
   name="gitrepo",
-  version="1.13.2",
+  version="1.13.2-1",
   packages=find_packages(),
 
   package_data={
@@ -14,6 +17,8 @@ setup(
   author="git-repo contributors",
   author_email="repo-discuss@googlegroups.com",
   description="Repo helps manage many Git repositories, does the uploads to revision control systems, and automates parts of the development workflow.",
+  long_description=long_description,
+  long_description_content_type="text/markdown",
   license="Apache",
   keywords="git repo android workflow",
   url="https://gerrit.googlesource.com/git-repo/",

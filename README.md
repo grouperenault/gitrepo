@@ -14,3 +14,35 @@ that you can put anywhere in your path.
 * [repo Manifest Format](./docs/manifest-format.md)
 * [repo Hooks](./docs/repo-hooks.md)
 * [Submitting patches](./SUBMITTING_PATCHES.md)
+
+
+# About pypi version
+
+Version in pypi is not the official version from google, but a friendly fork, with support for normal setup.py style installation
+
+- local imports replaced by module imports, "repo" being the name of the python module
+- subcommand discovery uses the python entrypoint system
+- support for custom repo subcommand in an separate python package
+
+## Installation
+
+```
+pip3 install --user gitrepo
+```
+
+## Custom commands
+
+- create a python module starting from any example in the repo/subcmds directory
+
+- add an entrypoint to your setup.py module:
+
+```python
+  setup(...,
+    install_requires=["gitrepo"],
+    entry_points={
+      'repo.subcmds': [
+        'my_custom_cmd = mycustomrepo.my_custom_cmd:CustomCmd',
+    }
+  )
+```
+Then you can ask your developers to install your own `mycustomrepo` package instead of the `gitrepo` package.
