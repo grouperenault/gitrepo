@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
   name="gitrepo",
-  version="0.2.3",
+  version="1.13.2",
   packages=find_packages(),
 
   package_data={
