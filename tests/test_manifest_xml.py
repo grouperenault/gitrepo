@@ -21,8 +21,8 @@ from __future__ import print_function
 import os
 import unittest
 
-import error
-import manifest_xml
+from repo import error
+from repo import manifest_xml
 
 
 class ManifestValidateFilePaths(unittest.TestCase):

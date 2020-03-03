@@ -50,6 +50,42 @@ $ chmod a+rx ~/.bin/repo
 ```
 
 
+
+
+# About pypi version
+
+Version in pypi is not the official version from google, but a friendly fork, with support for normal setup.py style installation
+- local imports replaced by module imports, "repo" being the name of the python module
+- subcommand discovery uses the python entrypoint system
+- support for custom repo subcommand in an separate python package
+
+It would be difficult to support a version that supports all of that *and* the legacy installation mode, this is why we didn't work on upstreaming it yet.
+
+This version is used in a large installation and backup by automated internal tests that we cannot really share yet (as dependent on our infra)
+
+## Installation
+
+```
+pip3 install --user gitrepo
+```
+
+## Custom commands
+
+- create a python module starting from any example in the repo/subcmds directory
+
+- add an entrypoint to your setup.py module:
+
+```python
+  setup(...,
+    install_requires=["gitrepo"],
+    entry_points={
+      'repo.subcmds': [
+        'my_custom_cmd = mycustomrepo.my_custom_cmd:CustomCmd',
+    }
+  )
+```
+Then you can ask your developers to install your own `mycustomrepo` package instead of the `gitrepo` package.
+
 [new-bug]: https://bugs.chromium.org/p/gerrit/issues/entry?template=Repo+tool+issue
 [issue tracker]: https://bugs.chromium.org/p/gerrit/issues/list?q=component:repo
 [repo-discuss]: https://groups.google.com/forum/#!forum/repo-discuss

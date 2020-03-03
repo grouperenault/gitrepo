@@ -25,10 +25,10 @@ import subprocess
 import tempfile
 import unittest
 
-import error
-import git_config
-import platform_utils
-import project
+from repo import error
+from repo import git_config
+from repo import platform_utils
+from repo import project
 
 
 @contextlib.contextmanager

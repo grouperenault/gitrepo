@@ -26,8 +26,8 @@ try:
 except ImportError:
   import mock
 
-import git_command
-import wrapper
+from repo import git_command
+from repo import wrapper
 
 
 class GitCallUnitTest(unittest.TestCase):

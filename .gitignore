@@ -1,6 +1,9 @@
 *.asc
 *.egg-info/
 *.log
+build
+dist
+e2e
 *.pyc
 __pycache__
 /dist
@@ -10,3 +13,4 @@ __pycache__
 
 # PyCharm related
 /.idea/
+/.vscode/

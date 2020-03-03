@@ -20,7 +20,7 @@ from __future__ import print_function
 
 import unittest
 
-from editor import Editor
+from repo.editor import Editor
 
 
 class EditorTestCase(unittest.TestCase):

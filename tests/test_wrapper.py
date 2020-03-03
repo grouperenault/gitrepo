@@ -22,8 +22,8 @@ import os
 import re
 import unittest
 
-from pyversion import is_python3
-import wrapper
+from repo.pyversion import is_python3
+from repo import wrapper
 
 
 if is_python3():
@@ -46,6 +46,7 @@ class RepoWrapperTestCase(unittest.TestCase):
   def setUp(self):
     """Load the wrapper module every time."""
     wrapper._wrapper_module = None
+    wrapper._gitc_manifest_dir = None  # reset cache
     self.wrapper = wrapper.Wrapper()
 
     if not is_python3():
