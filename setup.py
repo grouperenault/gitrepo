@@ -20,7 +20,7 @@ with open("README.md", "r") as fh:
 
 setup(
   name="gitrepo",
-  version="2.4.1-27", # use git describe to update
+  version="2.4.1-28", # use git describe to update
   packages=find_packages(),
 
   package_data={
@@ -38,6 +38,23 @@ setup(
   license="Apache",
   keywords="git repo android workflow",
   url="https://gerrit.googlesource.com/git-repo/",
+  project_urls={
+      'Bug Tracker': 'https://bugs.chromium.org/p/gerrit/issues/list?q=component:repo',
+  },
+  # https://pypi.org/classifiers/
+  classifiers=[
+      'Development Status :: 6 - Mature',
+      'Environment :: Console',
+      'Intended Audience :: Developers',
+      'License :: OSI Approved :: Apache Software License',
+      'Natural Language :: English',
+      'Operating System :: MacOS :: MacOS X',
+      'Operating System :: Microsoft :: Windows :: Windows 10',
+      'Operating System :: POSIX :: Linux',
+      'Topic :: Software Development :: Version Control :: Git',
+  ],
+  # We support Python 2.7 and Python 3.6+.
+  python_requires='>=2.7, ' + ', '.join('!=3.%i.*' % x for x in range(0, 6)),
   entry_points={
     'console_scripts': [
       'repo = repo.main:main',
