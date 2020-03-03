@@ -54,7 +54,8 @@ $ chmod a+rx ~/.bin/repo
 
 # About pypi version
 
-Version in pypi is not the official version from google, but a friendly fork, with support for normal setup.py style installation
+Version in pypi is not the official version from google, but a friendly fork (https://github.com/tardyp/google-repo), with support for normal setup.py style installation
+
 - local imports replaced by module imports, "repo" being the name of the python module
 - subcommand discovery uses the python entrypoint system
 - support for custom repo subcommand in an separate python package
