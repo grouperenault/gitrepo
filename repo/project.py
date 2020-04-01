@@ -3620,3 +3620,10 @@ class RepoSetupPyProject:
   @property
   def HasChanges(self):
     return False
+
+  @property
+  def CurrentBranch(self):
+    return "pypi"
+
+  def GetBranch(self, name):
+    return self.config.GetBranch(name)

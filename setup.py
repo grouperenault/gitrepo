@@ -20,7 +20,7 @@ with open("README.md", "r") as fh:
 
 setup(
   name="gitrepo",
-  version="2.4.1-28", # use git describe to update
+  version="2.5.0",
   packages=find_packages(),
 
   package_data={

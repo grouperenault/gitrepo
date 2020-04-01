@@ -19,7 +19,7 @@ import pkg_resources
 
 all_commands = {}
 for ep in pkg_resources.iter_entry_points("repo.subcmds"):
-  cmd = ep.resolve()()
+  cmd = ep.resolve()
   cmdname = ep.name
   cmd.NAME = cmdname
   all_commands[cmdname] = cmd
