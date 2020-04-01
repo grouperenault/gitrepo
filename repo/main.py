@@ -135,8 +135,6 @@ class _Repo(object):
   def __init__(self, repodir):
     self.repodir = repodir
     self.commands = all_commands
-    # add 'branch' as an alias for 'branches'
-    all_commands['branch'] = all_commands['branches']
 
   def _ParseArgs(self, argv):
     """Parse the main `repo` command line options."""
@@ -205,7 +203,7 @@ class _Repo(object):
     SetDefaultColoring(gopts.color)
 
     try:
-      cmd = self.commands[name]
+      cmd = self.commands[name]()
     except KeyError:
       print("repo: '%s' is not a repo command.  See 'repo help'." % name,
             file=sys.stderr)

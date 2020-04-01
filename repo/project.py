@@ -2441,8 +2441,10 @@ class Project(object):
       if os.path.exists(os.path.join(self.gitdir, 'shallow')):
         cmd.append('--depth=2147483647')
 
-    if quiet:
+    if not verbose:
       cmd.append('--quiet')
+    if not quiet and sys.stdout.isatty():
+      cmd.append('--progress')
     if not self.worktree:
       cmd.append('--update-head-ok')
     cmd.append(name)
@@ -2499,7 +2501,7 @@ class Project(object):
     ok = False
     for _i in range(2):
       gitcmd = GitCommand(self, cmd, bare=True, ssh_proxy=ssh_proxy,
-                          merge_output=True, capture_stdout=not verbose)
+                          merge_output=True, capture_stdout=quiet)
       ret = gitcmd.Wait()
       if ret == 0:
         ok = True
@@ -2579,8 +2581,10 @@ class Project(object):
       return False
 
     cmd = ['fetch']
-    if quiet:
+    if not verbose:
       cmd.append('--quiet')
+    if not quiet and sys.stdout.isatty():
+      cmd.append('--progress')
     if not self.worktree:
       cmd.append('--update-head-ok')
     cmd.append(bundle_dst)
@@ -2640,9 +2644,8 @@ class Project(object):
         # 22: HTTP page not retrieved. The requested url was not found or
         # returned another error with the HTTP error code being 400 or above.
         # This return code only appears if -f, --fail is used.
-        if not quiet:
-          print("Server does not provide clone.bundle; ignoring.",
-                file=sys.stderr)
+        if verbose:
+          print('Server does not provide clone.bundle; ignoring.')
         return False
       elif curlret and not verbose and output:
         print('%s' % output, file=sys.stderr)
@@ -2679,8 +2682,12 @@ class Project(object):
       if self._allrefs:
         raise GitError('%s checkout %s ' % (self.name, rev))
 
-  def _CherryPick(self, rev):
+  def _CherryPick(self, rev, ffonly=False, record_origin=False):
     cmd = ['cherry-pick']
+    if ffonly:
+      cmd.append('--ff')
+    if record_origin:
+      cmd.append('-x')
     cmd.append(rev)
     cmd.append('--')
     if GitCommand(self, cmd).Wait() != 0:

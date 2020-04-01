@@ -44,9 +44,9 @@ class Version(Command, MirrorSafeCommand):
     print('repo version %s' % rp_ver)
     print('       (from %s)' % rem.url)
 
-    if Version.wrapper_path is not None:
-      print('repo launcher version %s' % Version.wrapper_version)
-      print('       (from %s)' % Version.wrapper_path)
+    if self.wrapper_path is not None:
+      print('repo launcher version %s' % self.wrapper_version)
+      print('       (from %s)' % self.wrapper_path)
 
       if src_ver != rp_ver:
         print('       (currently at %s)' % src_ver)
@@ -56,6 +56,10 @@ class Version(Command, MirrorSafeCommand):
     print('git User-Agent %s' % user_agent.git)
     print('Python %s' % sys.version)
     uname = platform.uname()
-    print('OS %s %s (%s)' % (uname.system, uname.release, uname.version))
-    print('CPU %s (%s)' %
-          (uname.machine, uname.processor if uname.processor else 'unknown'))
+    if sys.version_info.major < 3:
+      # Python 3 returns a named tuple, but Python 2 is simpler.
+      print(uname)
+    else:
+      print('OS %s %s (%s)' % (uname.system, uname.release, uname.version))
+      print('CPU %s (%s)' %
+            (uname.machine, uname.processor if uname.processor else 'unknown'))
