@@ -23,6 +23,7 @@ from repo.command import InteractiveCommand
 from repo.editor import Editor
 from repo.error import HookError, UploadError
 from repo.git_command import GitCommand
+from repo.git_refs import R_HEADS
 from repo.project import RepoHook
 
 from repo.pyversion import is_python3
@@ -465,7 +466,10 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
         # Make sure our local branch is not setup to track a different remote branch
         merge_branch = self._GetMergeBranch(branch.project)
         if destination:
-          full_dest = 'refs/heads/%s' % destination
+          full_dest = destination
+          if not full_dest.startswith(R_HEADS):
+            full_dest = R_HEADS + full_dest
+
           if not opt.dest_branch and merge_branch and merge_branch != full_dest:
             print('merge branch %s does not match destination branch %s'
                   % (merge_branch, full_dest))
