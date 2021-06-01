@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2010 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
 import re
 import sys
 from repo.command import Command
@@ -34,9 +31,6 @@ class CherryPick(Command):
 The change id will be updated, and a reference to the old
 change id will be added.
 """
-
-  def _Options(self, p):
-    pass
 
   def ValidateOptions(self, opt, args):
     if len(args) != 1:
@@ -75,11 +69,9 @@ change id will be added.
       new_msg = self._Reformat(old_msg, sha1)
 
       p = GitCommand(None, ['commit', '--amend', '-F', '-'],
-                     provide_stdin=True,
+                     input=new_msg,
                      capture_stdout=True,
                      capture_stderr=True)
-      p.stdin.write(new_msg)
-      p.stdin.close()
       if p.Wait() != 0:
         print("error: Failed to update commit message", file=sys.stderr)
         sys.exit(1)

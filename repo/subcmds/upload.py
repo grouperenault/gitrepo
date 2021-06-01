@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,26 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
 import copy
+import functools
+import optparse
 import re
 import sys
 
-from repo.command import InteractiveCommand
+from repo.command import InteractiveCommand, DEFAULT_LOCAL_JOBS
 from repo.editor import Editor
-from repo.error import HookError, UploadError
+from repo.error import UploadError
 from repo.git_command import GitCommand
 from repo.git_refs import R_HEADS
 from repo.project import RepoHook
-
-from repo.pyversion import is_python3
-
-# pylint:disable=W0622
-if not is_python3():
-  input = raw_input  # noqa: F821
-else:
-  unicode = str
-# pylint:enable=W0622
 
 UNUSUAL_COMMIT_THRESHOLD = 5
 
@@ -156,85 +146,67 @@ https://gerrit-review.googlesource.com/Documentation/user-upload.html#notify
 Gerrit Code Review:  https://www.gerritcodereview.com/
 
 """
+  PARALLEL_JOBS = DEFAULT_LOCAL_JOBS
 
   def _Options(self, p):
     p.add_option('-t',
                  dest='auto_topic', action='store_true',
-                 help='Send local branch name to Gerrit Code Review')
+                 help='send local branch name to Gerrit Code Review')
     p.add_option('--hashtag', '--ht',
                  dest='hashtags', action='append', default=[],
-                 help='Add hashtags (comma delimited) to the review.')
+                 help='add hashtags (comma delimited) to the review')
     p.add_option('--hashtag-branch', '--htb',
                  action='store_true',
-                 help='Add local branch name as a hashtag.')
+                 help='add local branch name as a hashtag')
     p.add_option('-l', '--label',
                  dest='labels', action='append', default=[],
-                 help='Add a label when uploading.')
+                 help='add a label when uploading')
     p.add_option('--re', '--reviewers',
                  type='string', action='append', dest='reviewers',
-                 help='Request reviews from these people.')
+                 help='request reviews from these people')
     p.add_option('--cc',
                  type='string', action='append', dest='cc',
-                 help='Also send email to these email addresses.')
-    p.add_option('--br',
+                 help='also send email to these email addresses')
+    p.add_option('--br', '--branch',
                  type='string', action='store', dest='branch',
-                 help='Branch to upload.')
-    p.add_option('--cbr', '--current-branch',
+                 help='(local) branch to upload')
+    p.add_option('-c', '--current-branch',
                  dest='current_branch', action='store_true',
-                 help='Upload current git branch.')
+                 help='upload current git branch')
+    p.add_option('--no-current-branch',
+                 dest='current_branch', action='store_false',
+                 help='upload all git branches')
+    # Turn this into a warning & remove this someday.
+    p.add_option('--cbr',
+                 dest='current_branch', action='store_true',
+                 help=optparse.SUPPRESS_HELP)
     p.add_option('--ne', '--no-emails',
                  action='store_false', dest='notify', default=True,
-                 help='If specified, do not send emails on upload.')
+                 help='do not send e-mails on upload')
     p.add_option('-p', '--private',
                  action='store_true', dest='private', default=False,
-                 help='If specified, upload as a private change.')
+                 help='upload as a private change (deprecated; use --wip)')
     p.add_option('-w', '--wip',
                  action='store_true', dest='wip', default=False,
-                 help='If specified, upload as a work-in-progress change.')
+                 help='upload as a work-in-progress change')
     p.add_option('-o', '--push-option',
                  type='string', action='append', dest='push_options',
                  default=[],
-                 help='Additional push options to transmit')
+                 help='additional push options to transmit')
     p.add_option('-D', '--destination', '--dest',
                  type='string', action='store', dest='dest_branch',
                  metavar='BRANCH',
-                 help='Submit for review on this target branch.')
+                 help='submit for review on this target branch')
     p.add_option('-n', '--dry-run',
                  dest='dryrun', default=False, action='store_true',
-                 help='Do everything except actually upload the CL.')
+                 help='do everything except actually upload the CL')
     p.add_option('-y', '--yes',
                  default=False, action='store_true',
-                 help='Answer yes to all safe prompts.')
+                 help='answer yes to all safe prompts')
     p.add_option('--no-cert-checks',
                  dest='validate_certs', action='store_false', default=True,
-                 help='Disable verifying ssl certs (unsafe).')
-
-    # Options relating to upload hook.  Note that verify and no-verify are NOT
-    # opposites of each other, which is why they store to different locations.
-    # We are using them to match 'git commit' syntax.
-    #
-    # Combinations:
-    # - no-verify=False, verify=False (DEFAULT):
-    #   If stdout is a tty, can prompt about running upload hooks if needed.
-    #   If user denies running hooks, the upload is cancelled.  If stdout is
-    #   not a tty and we would need to prompt about upload hooks, upload is
-    #   cancelled.
-    # - no-verify=False, verify=True:
-    #   Always run upload hooks with no prompt.
-    # - no-verify=True, verify=False:
-    #   Never run upload hooks, but upload anyway (AKA bypass hooks).
-    # - no-verify=True, verify=True:
-    #   Invalid
-    g = p.add_option_group('Upload hooks')
-    g.add_option('--no-verify',
-                 dest='bypass_hooks', action='store_true',
-                 help='Do not run the upload hook.')
-    g.add_option('--verify',
-                 dest='allow_all_hooks', action='store_true',
-                 help='Run the upload hook without prompting.')
-    g.add_option('--ignore-hooks',
-                 dest='ignore_hooks', action='store_true',
-                 help='Do not abort uploading if upload hooks fail.')
+                 help='disable verifying ssl certs (unsafe)')
+    RepoHook.AddOptionGroup(p, 'pre-upload')
 
   def _SingleBranch(self, opt, branch, people):
     project = branch.project
@@ -539,72 +511,60 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
     merge_branch = p.stdout.strip()
     return merge_branch
 
+  @staticmethod
+  def _GatherOne(opt, project):
+    """Figure out the upload status for |project|."""
+    if opt.current_branch:
+      cbr = project.CurrentBranch
+      up_branch = project.GetUploadableBranch(cbr)
+      avail = [up_branch] if up_branch else None
+    else:
+      avail = project.GetUploadableBranches(opt.branch)
+    return (project, avail)
+
   def Execute(self, opt, args):
-    project_list = self.GetProjects(args)
-    pending = []
-    reviewers = []
-    cc = []
-    branch = None
+    projects = self.GetProjects(args)
 
-    if opt.branch:
-      branch = opt.branch
-
-    for project in project_list:
-      if opt.current_branch:
-        cbr = project.CurrentBranch
-        up_branch = project.GetUploadableBranch(cbr)
-        if up_branch:
-          avail = [up_branch]
-        else:
-          avail = None
-          print('ERROR: Current branch (%s) not uploadable. '
-                'You may be able to type '
-                '"git branch --set-upstream-to m/master" to fix '
-                'your branch.' % str(cbr),
+    def _ProcessResults(_pool, _out, results):
+      pending = []
+      for result in results:
+        project, avail = result
+        if avail is None:
+          print('repo: error: %s: Unable to upload branch "%s". '
+                'You might be able to fix the branch by running:\n'
+                '  git branch --set-upstream-to m/%s' %
+                (project.relpath, project.CurrentBranch, self.manifest.branch),
                 file=sys.stderr)
-      else:
-        avail = project.GetUploadableBranches(branch)
-      if avail:
-        pending.append((project, avail))
+        elif avail:
+          pending.append(result)
+      return pending
+
+    pending = self.ExecuteInParallel(
+        opt.jobs,
+        functools.partial(self._GatherOne, opt),
+        projects,
+        callback=_ProcessResults)
 
     if not pending:
-      if branch is None:
+      if opt.branch is None:
         print('repo: error: no branches ready for upload', file=sys.stderr)
       else:
         print('repo: error: no branches named "%s" ready for upload' %
-              (branch,), file=sys.stderr)
+              (opt.branch,), file=sys.stderr)
       return 1
 
-    if not opt.bypass_hooks:
-      hook = RepoHook('pre-upload', self.manifest.repo_hooks_project,
-                      self.manifest.topdir,
-                      self.manifest.manifestProject.GetRemote('origin').url,
-                      abort_if_user_denies=True)
-      pending_proj_names = [project.name for (project, available) in pending]
-      pending_worktrees = [project.worktree for (project, available) in pending]
-      passed = True
-      try:
-        hook.Run(opt.allow_all_hooks, project_list=pending_proj_names,
-                 worktree_list=pending_worktrees)
-      except SystemExit:
-        passed = False
-        if not opt.ignore_hooks:
-          raise
-      except HookError as e:
-        passed = False
-        print("ERROR: %s" % str(e), file=sys.stderr)
+    pending_proj_names = [project.name for (project, available) in pending]
+    pending_worktrees = [project.worktree for (project, available) in pending]
+    hook = RepoHook.FromSubcmd(
+        hook_type='pre-upload', manifest=self.manifest,
+        opt=opt, abort_if_user_denies=True)
+    if not hook.Run(
+        project_list=pending_proj_names,
+        worktree_list=pending_worktrees):
+      return 1
 
-      if not passed:
-        if opt.ignore_hooks:
-          print('\nWARNING: pre-upload hooks failed, but uploading anyways.',
-                file=sys.stderr)
-        else:
-          return
-
-    if opt.reviewers:
-      reviewers = _SplitEmails(opt.reviewers)
-    if opt.cc:
-      cc = _SplitEmails(opt.cc)
+    reviewers = _SplitEmails(opt.reviewers) if opt.reviewers else []
+    cc = _SplitEmails(opt.cc) if opt.cc else []
     people = (reviewers, cc)
 
     if len(pending) == 1 and len(pending[0][1]) == 1:

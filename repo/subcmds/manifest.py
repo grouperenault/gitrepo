@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2009 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
+import json
 import os
 import sys
 
@@ -30,7 +28,7 @@ class Manifest(PagedCommand):
   _helpDescription = """
 
 With the -o option, exports the current manifest for inspection.
-The manifest and (if present) local_manifest.xml are combined
+The manifest and (if present) local_manifests/ are combined
 together to produce a single manifest file.  This file can be stored
 in a Git repository for use during future 'repo init' invocations.
 
@@ -55,23 +53,27 @@ to indicate the remote ref to push changes to via 'repo upload'.
   def _Options(self, p):
     p.add_option('-r', '--revision-as-HEAD',
                  dest='peg_rev', action='store_true',
-                 help='Save revisions as current HEAD')
+                 help='save revisions as current HEAD')
     p.add_option('-m', '--manifest-name',
                  help='temporary manifest to use for this sync', metavar='NAME.xml')
     p.add_option('--suppress-upstream-revision', dest='peg_rev_upstream',
                  default=True, action='store_false',
-                 help='If in -r mode, do not write the upstream field.  '
-                 'Only of use if the branch names for a sha1 manifest are '
-                 'sensitive.')
+                 help='if in -r mode, do not write the upstream field '
+                 '(only of use if the branch names for a sha1 manifest are '
+                 'sensitive)')
     p.add_option('--suppress-dest-branch', dest='peg_rev_dest_branch',
                  default=True, action='store_false',
-                 help='If in -r mode, do not write the dest-branch field.  '
-                 'Only of use if the branch names for a sha1 manifest are '
-                 'sensitive.')
+                 help='if in -r mode, do not write the dest-branch field '
+                 '(only of use if the branch names for a sha1 manifest are '
+                 'sensitive)')
+    p.add_option('--json', default=False, action='store_true',
+                 help='output manifest in JSON format (experimental)')
+    p.add_option('--pretty', default=False, action='store_true',
+                 help='format output for humans to read')
     p.add_option('-o', '--output-file',
                  dest='output_file',
                  default='-',
-                 help='File to save the manifest to',
+                 help='file to save the manifest to',
                  metavar='-|NAME.xml')
 
   def _Output(self, opt):
@@ -83,10 +85,26 @@ to indicate the remote ref to push changes to via 'repo upload'.
       fd = sys.stdout
     else:
       fd = open(opt.output_file, 'w')
-    self.manifest.Save(fd,
-                       peg_rev=opt.peg_rev,
-                       peg_rev_upstream=opt.peg_rev_upstream,
-                       peg_rev_dest_branch=opt.peg_rev_dest_branch)
+    if opt.json:
+      print('warning: --json is experimental!', file=sys.stderr)
+      doc = self.manifest.ToDict(peg_rev=opt.peg_rev,
+                                 peg_rev_upstream=opt.peg_rev_upstream,
+                                 peg_rev_dest_branch=opt.peg_rev_dest_branch)
+
+      json_settings = {
+          # JSON style guide says Uunicode characters are fully allowed.
+          'ensure_ascii': False,
+          # We use 2 space indent to match JSON style guide.
+          'indent': 2 if opt.pretty else None,
+          'separators': (',', ': ') if opt.pretty else (',', ':'),
+          'sort_keys': True,
+      }
+      fd.write(json.dumps(doc, **json_settings))
+    else:
+      self.manifest.Save(fd,
+                         peg_rev=opt.peg_rev,
+                         peg_rev_upstream=opt.peg_rev_upstream,
+                         peg_rev_dest_branch=opt.peg_rev_dest_branch)
     fd.close()
     if opt.output_file != '-':
       print('Saved manifest to %s' % opt.output_file, file=sys.stderr)

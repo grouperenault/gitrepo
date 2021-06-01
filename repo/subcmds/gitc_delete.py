@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2015 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,15 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
 import sys
 
 from repo.command import Command, GitcClientCommand
 from repo import platform_utils
-
-from repo.pyversion import is_python3
-if not is_python3():
-  input = raw_input  # noqa: F821
 
 
 class GitcDelete(Command, GitcClientCommand):
@@ -40,7 +33,7 @@ and all locally downloaded sources.
   def _Options(self, p):
     p.add_option('-f', '--force',
                  dest='force', action='store_true',
-                 help='Force the deletion (no prompt).')
+                 help='force the deletion (no prompt)')
 
   def Execute(self, opt, args):
     if not opt.force:

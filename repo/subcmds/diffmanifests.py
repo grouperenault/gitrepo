@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2014 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +14,7 @@
 
 from repo.color import Coloring
 from repo.command import PagedCommand
-from repo.manifest_xml import XmlManifest
+from repo.manifest_xml import RepoClient
 
 
 class _Coloring(Coloring):
@@ -70,10 +68,10 @@ synced and their revisions won't be found.
   def _Options(self, p):
     p.add_option('--raw',
                  dest='raw', action='store_true',
-                 help='Display raw diff.')
+                 help='display raw diff')
     p.add_option('--no-color',
                  dest='color', action='store_false', default=True,
-                 help='does not display the diff in color.')
+                 help='does not display the diff in color')
     p.add_option('--pretty-format',
                  dest='pretty_format', action='store',
                  metavar='<FORMAT>',
@@ -183,7 +181,7 @@ synced and their revisions won't be found.
       self.OptionParser.error('missing manifests to diff')
 
   def Execute(self, opt, args):
-    self.out = _Coloring(self.manifest.globalConfig)
+    self.out = _Coloring(self.client.globalConfig)
     self.printText = self.out.nofmt_printer('text')
     if opt.color:
       self.printProject = self.out.nofmt_printer('project', attr='bold')
@@ -193,12 +191,12 @@ synced and their revisions won't be found.
     else:
       self.printProject = self.printAdded = self.printRemoved = self.printRevision = self.printText
 
-    manifest1 = XmlManifest(self.manifest.repodir)
+    manifest1 = RepoClient(self.repodir)
     manifest1.Override(args[0], load_local_manifests=False)
     if len(args) == 1:
       manifest2 = self.manifest
     else:
-      manifest2 = XmlManifest(self.manifest.repodir)
+      manifest2 = RepoClient(self.repodir)
       manifest2.Override(args[1], load_local_manifests=False)
 
     diff = manifest1.projectsDiff(manifest2)

@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2009 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
+import itertools
 import sys
 from repo.color import Coloring
-from repo.command import Command
+from repo.command import Command, DEFAULT_LOCAL_JOBS
 
 
 class BranchColoring(Coloring):
@@ -96,6 +94,7 @@ the branch appears in, or does not appear in.  If no project list
 is shown, then the branch appears in all projects.
 
 """
+  PARALLEL_JOBS = DEFAULT_LOCAL_JOBS
 
   def Execute(self, opt, args):
     projects = self.GetProjects(args)
@@ -103,14 +102,19 @@ is shown, then the branch appears in all projects.
     all_branches = {}
     project_cnt = len(projects)
 
-    for project in projects:
-      for name, b in project.GetBranches().items():
-        b.project = project
+    def _ProcessResults(_pool, _output, results):
+      for name, b in itertools.chain.from_iterable(results):
         if name not in all_branches:
           all_branches[name] = BranchInfo(name)
         all_branches[name].add(b)
 
-    names = list(sorted(all_branches))
+    self.ExecuteInParallel(
+        opt.jobs,
+        expand_project_to_branches,
+        projects,
+        callback=_ProcessResults)
+
+    names = sorted(all_branches)
 
     if not names:
       print('   (no branches)', file=sys.stderr)
@@ -180,3 +184,19 @@ is shown, then the branch appears in all projects.
       else:
         out.write(' in all projects')
       out.nl()
+
+
+def expand_project_to_branches(project):
+  """Expands a project into a list of branch names & associated information.
+
+  Args:
+    project: project.Project
+
+  Returns:
+    List[Tuple[str, git_config.Branch]]
+  """
+  branches = []
+  for name, b in project.GetBranches().items():
+    b.project = project
+    branches.append((name, b))
+  return branches

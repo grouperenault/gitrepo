@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
+import functools
 import os
 import sys
 
-from repo.command import Command
+from repo.command import Command, DEFAULT_LOCAL_JOBS
 from repo.git_config import IsImmutable
 from repo.git_command import git
 from repo import gitc_utils
@@ -36,6 +34,7 @@ class Start(Command):
 '%prog' begins a new branch of development, starting from the
 revision specified in the manifest.
 """
+  PARALLEL_JOBS = DEFAULT_LOCAL_JOBS
 
   def _Options(self, p):
     p.add_option('--all',
@@ -43,7 +42,8 @@ revision specified in the manifest.
                  help='begin branch in all projects')
     p.add_option('-r', '--rev', '--revision', dest='revision',
                  help='point branch at this revision instead of upstream')
-    p.add_option('--head', dest='revision', action='store_const', const='HEAD',
+    p.add_option('--head', '--HEAD',
+                 dest='revision', action='store_const', const='HEAD',
                  help='abbreviation for --rev HEAD')
 
   def ValidateOptions(self, opt, args):
@@ -53,6 +53,26 @@ revision specified in the manifest.
     nb = args[0]
     if not git.check_ref_format('heads/%s' % nb):
       self.OptionParser.error("'%s' is not a valid name" % nb)
+
+  def _ExecuteOne(self, revision, nb, project):
+    """Start one project."""
+    # If the current revision is immutable, such as a SHA1, a tag or
+    # a change, then we can't push back to it. Substitute with
+    # dest_branch, if defined; or with manifest default revision instead.
+    branch_merge = ''
+    if IsImmutable(project.revisionExpr):
+      if project.dest_branch:
+        branch_merge = project.dest_branch
+      else:
+        branch_merge = self.manifest.default.revisionExpr
+
+    try:
+      ret = project.StartBranch(
+          nb, branch_merge=branch_merge, revision=revision)
+    except Exception as e:
+      print('error: unable to checkout %s: %s' % (project.name, e), file=sys.stderr)
+      ret = False
+    return (ret, project)
 
   def Execute(self, opt, args):
     nb = args[0]
@@ -85,11 +105,8 @@ revision specified in the manifest.
       if not os.path.exists(os.getcwd()):
         os.chdir(self.manifest.topdir)
 
-    pm = Progress('Starting %s' % nb, len(all_projects))
-    for project in all_projects:
-      pm.update()
-
-      if self.gitc_manifest:
+      pm = Progress('Syncing %s' % nb, len(all_projects), quiet=opt.quiet)
+      for project in all_projects:
         gitc_project = self.gitc_manifest.paths[project.relpath]
         # Sync projects that have not been opened.
         if not gitc_project.already_synced:
@@ -102,21 +119,21 @@ revision specified in the manifest.
           sync_buf = SyncBuffer(self.manifest.manifestProject.config)
           project.Sync_LocalHalf(sync_buf)
           project.revisionId = gitc_project.old_revision
+        pm.update()
+      pm.end()
 
-      # If the current revision is immutable, such as a SHA1, a tag or
-      # a change, then we can't push back to it. Substitute with
-      # dest_branch, if defined; or with manifest default revision instead.
-      branch_merge = ''
-      if IsImmutable(project.revisionExpr):
-        if project.dest_branch:
-          branch_merge = project.dest_branch
-        else:
-          branch_merge = self.manifest.default.revisionExpr
+    def _ProcessResults(_pool, pm, results):
+      for (result, project) in results:
+        if not result:
+          err.append(project)
+        pm.update()
 
-      if not project.StartBranch(
-              nb, branch_merge=branch_merge, revision=opt.revision):
-        err.append(project)
-    pm.end()
+    self.ExecuteInParallel(
+        opt.jobs,
+        functools.partial(self._ExecuteOne, opt.revision, nb),
+        all_projects,
+        callback=_ProcessResults,
+        output=Progress('Starting %s' % (nb,), len(all_projects), quiet=opt.quiet))
 
     if err:
       for p in err:

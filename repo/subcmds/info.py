@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2012 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +15,8 @@
 from repo.command import PagedCommand
 from repo.color import Coloring
 from repo.git_refs import R_M, R_HEADS
+import optparse
+
 
 
 class _Coloring(Coloring):
@@ -27,7 +27,7 @@ class _Coloring(Coloring):
 class Info(PagedCommand):
   common = True
   helpSummary = "Get info on the manifest branch, current branch or unmerged branches"
-  helpUsage = "%prog [-dl] [-o [-b]] [<project>...]"
+  helpUsage = "%prog [-dl] [-o [-c]] [<project>...]"
 
   def _Options(self, p):
     p.add_option('-d', '--diff',
@@ -36,15 +36,22 @@ class Info(PagedCommand):
     p.add_option('-o', '--overview',
                  dest='overview', action='store_true',
                  help='show overview of all local commits')
-    p.add_option('-b', '--current-branch',
+    p.add_option('-c', '--current-branch',
                  dest="current_branch", action="store_true",
                  help="consider only checked out branches")
+    p.add_option('--no-current-branch',
+                 dest='current_branch', action='store_false',
+                 help='consider all local branches')
+    # Turn this into a warning & remove this someday.
+    p.add_option('-b',
+                 dest='current_branch', action='store_true',
+                 help=optparse.SUPPRESS_HELP)
     p.add_option('-l', '--local-only',
                  dest="local", action="store_true",
-                 help="Disable all remote operations")
+                 help="disable all remote operations")
 
   def Execute(self, opt, args):
-    self.out = _Coloring(self.manifest.globalConfig)
+    self.out = _Coloring(self.client.globalConfig)
     self.heading = self.out.printer('heading', attr='bold')
     self.headtext = self.out.nofmt_printer('headtext', fg='yellow')
     self.redtext = self.out.printer('redtext', fg='red')

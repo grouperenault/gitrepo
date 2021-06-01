@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,12 +18,12 @@ class ManifestParseError(Exception):
   """
 
 
-class ManifestInvalidRevisionError(Exception):
+class ManifestInvalidRevisionError(ManifestParseError):
   """The revision value in a project is incorrect.
   """
 
 
-class ManifestInvalidPathError(Exception):
+class ManifestInvalidPathError(ManifestParseError):
   """A path used in <copyfile> or <linkfile> is incorrect.
   """
 
@@ -35,7 +33,7 @@ class NoManifestException(Exception):
   """
 
   def __init__(self, path, reason):
-    super(NoManifestException, self).__init__()
+    super().__init__(path, reason)
     self.path = path
     self.reason = reason
 
@@ -48,7 +46,7 @@ class EditorError(Exception):
   """
 
   def __init__(self, reason):
-    super(EditorError, self).__init__()
+    super().__init__(reason)
     self.reason = reason
 
   def __str__(self):
@@ -60,7 +58,7 @@ class GitError(Exception):
   """
 
   def __init__(self, command):
-    super(GitError, self).__init__()
+    super().__init__(command)
     self.command = command
 
   def __str__(self):
@@ -72,7 +70,7 @@ class UploadError(Exception):
   """
 
   def __init__(self, reason):
-    super(UploadError, self).__init__()
+    super().__init__(reason)
     self.reason = reason
 
   def __str__(self):
@@ -84,7 +82,7 @@ class DownloadError(Exception):
   """
 
   def __init__(self, reason):
-    super(DownloadError, self).__init__()
+    super().__init__(reason)
     self.reason = reason
 
   def __str__(self):
@@ -96,7 +94,7 @@ class NoSuchProjectError(Exception):
   """
 
   def __init__(self, name=None):
-    super(NoSuchProjectError, self).__init__()
+    super().__init__(name)
     self.name = name
 
   def __str__(self):
@@ -110,7 +108,7 @@ class InvalidProjectGroupsError(Exception):
   """
 
   def __init__(self, name=None):
-    super(InvalidProjectGroupsError, self).__init__()
+    super().__init__(name)
     self.name = name
 
   def __str__(self):
@@ -126,7 +124,7 @@ class RepoChangedException(Exception):
   """
 
   def __init__(self, extra_args=None):
-    super(RepoChangedException, self).__init__()
+    super().__init__(extra_args)
     self.extra_args = extra_args or []
 
 

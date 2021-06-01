@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2019 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,8 +14,6 @@
 
 """Unittests for the project.py module."""
 
-from __future__ import print_function
-
 import contextlib
 import os
 import shutil
@@ -26,6 +22,7 @@ import tempfile
 import unittest
 
 from repo import error
+from repo import git_command
 from repo import git_config
 from repo import platform_utils
 from repo import project
@@ -38,49 +35,22 @@ def TempGitTree():
   # Python 2 support entirely.
   try:
     tempdir = tempfile.mkdtemp(prefix='repo-tests')
-    subprocess.check_call(['git', 'init'], cwd=tempdir)
+
+    # Tests need to assume, that main is default branch at init,
+    # which is not supported in config until 2.28.
+    cmd = ['git', 'init']
+    if git_command.git_require((2, 28, 0)):
+      cmd += ['--initial-branch=main']
+    else:
+      # Use template dir for init.
+      templatedir = tempfile.mkdtemp(prefix='.test-template')
+      with open(os.path.join(templatedir, 'HEAD'), 'w') as fp:
+        fp.write('ref: refs/heads/main\n')
+      cmd += ['--template', templatedir]
+    subprocess.check_call(cmd, cwd=tempdir)
     yield tempdir
   finally:
     platform_utils.rmtree(tempdir)
-
-
-class RepoHookShebang(unittest.TestCase):
-  """Check shebang parsing in RepoHook."""
-
-  def test_no_shebang(self):
-    """Lines w/out shebangs should be rejected."""
-    DATA = (
-        '',
-        '# -*- coding:utf-8 -*-\n',
-        '#\n# foo\n',
-        '# Bad shebang in script\n#!/foo\n'
-    )
-    for data in DATA:
-      self.assertIsNone(project.RepoHook._ExtractInterpFromShebang(data))
-
-  def test_direct_interp(self):
-    """Lines whose shebang points directly to the interpreter."""
-    DATA = (
-        ('#!/foo', '/foo'),
-        ('#! /foo', '/foo'),
-        ('#!/bin/foo ', '/bin/foo'),
-        ('#! /usr/foo ', '/usr/foo'),
-        ('#! /usr/foo -args', '/usr/foo'),
-    )
-    for shebang, interp in DATA:
-      self.assertEqual(project.RepoHook._ExtractInterpFromShebang(shebang),
-                       interp)
-
-  def test_env_interp(self):
-    """Lines whose shebang launches through `env`."""
-    DATA = (
-        ('#!/usr/bin/env foo', 'foo'),
-        ('#!/bin/env foo', 'foo'),
-        ('#! /bin/env /bin/foo ', '/bin/foo'),
-    )
-    for shebang, interp in DATA:
-      self.assertEqual(project.RepoHook._ExtractInterpFromShebang(shebang),
-                       interp)
 
 
 class FakeProject(object):
@@ -116,7 +86,7 @@ class ReviewableBranchTests(unittest.TestCase):
 
       # Start off with the normal details.
       rb = project.ReviewableBranch(
-          fakeproj, fakeproj.config.GetBranch('work'), 'master')
+          fakeproj, fakeproj.config.GetBranch('work'), 'main')
       self.assertEqual('work', rb.name)
       self.assertEqual(1, len(rb.commits))
       self.assertIn('Del file', rb.commits[0])
@@ -129,9 +99,9 @@ class ReviewableBranchTests(unittest.TestCase):
       self.assertTrue(rb.date)
 
       # Now delete the tracking branch!
-      fakeproj.work_git.branch('-D', 'master')
+      fakeproj.work_git.branch('-D', 'main')
       rb = project.ReviewableBranch(
-          fakeproj, fakeproj.config.GetBranch('work'), 'master')
+          fakeproj, fakeproj.config.GetBranch('work'), 'main')
       self.assertEqual(0, len(rb.commits))
       self.assertFalse(rb.base_exists)
       # Hard to assert anything useful about this.

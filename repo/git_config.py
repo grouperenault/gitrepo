@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,46 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
-
 import contextlib
 import errno
+from http.client import HTTPException
 import json
 import os
 import re
-import signal
 import ssl
 import subprocess
 import sys
-try:
-  import threading as _threading
-except ImportError:
-  import dummy_threading as _threading
-import time
 
-from repo.pyversion import is_python3
-if is_python3():
-  import urllib.request
-  import urllib.error
-else:
-  import urllib2
-  import imp
-  urllib = imp.new_module('urllib')
-  urllib.request = urllib2
-  urllib.error = urllib2
+import urllib.request
+import urllib.error
 
 from repo.error import GitError, UploadError
 from repo import platform_utils
 from repo.trace import Trace
-if is_python3():
-  from http.client import HTTPException
-else:
-  from httplib import HTTPException
+from http.client import HTTPException
 
 from repo.git_command import GitCommand
 from repo.git_command import ssh_sock
 from repo.git_command import terminate_ssh_clients
 from repo.git_refs import R_CHANGES, R_HEADS, R_TAGS
+import urllib.error
+import urllib.request
+
 
 ID_RE = re.compile(r'^[0-9a-f]{40}$')
 
@@ -161,6 +144,21 @@ class GitConfig(object):
     except ValueError:
       return None
 
+  def DumpConfigDict(self):
+    """Returns the current configuration dict.
+
+    Configuration data is information only (e.g. logging) and
+    should not be considered a stable data-source.
+
+    Returns:
+      dict of {<key>, <value>} for git configuration cache.
+      <value> are strings converted by GetString.
+    """
+    config_dict = {}
+    for key in self._cache:
+      config_dict[key] = self.GetString(key)
+    return config_dict
+
   def GetBoolean(self, name):
     """Returns a boolean from the configuration file.
        None : The value was not defined, or is not a boolean.
@@ -176,6 +174,12 @@ class GitConfig(object):
     if v in ('false', 'no'):
       return False
     return None
+
+  def SetBoolean(self, name, value):
+    """Set the truthy value for a key."""
+    if value is not None:
+      value = 'true' if value else 'false'
+    self.SetString(name, value)
 
   def GetString(self, name, all_keys=False):
     """Get the first value for a key, or None if it is not defined.
@@ -345,8 +349,6 @@ class GitConfig(object):
     d = self._do('--null', '--list')
     if d is None:
       return c
-    if not is_python3():
-      d = d.decode('utf-8')
     for line in d.rstrip('\0').split('\0'):
       if '\n' in line:
         key, val = line.split('\n', 1)
@@ -440,127 +442,6 @@ class RefSpec(object):
     return s
 
 
-_master_processes = []
-_master_keys = set()
-_ssh_master = True
-_master_keys_lock = None
-
-
-def init_ssh():
-  """Should be called once at the start of repo to init ssh master handling.
-
-  At the moment, all we do is to create our lock.
-  """
-  global _master_keys_lock
-  assert _master_keys_lock is None, "Should only call init_ssh once"
-  _master_keys_lock = _threading.Lock()
-
-
-def _open_ssh(host, port=None):
-  global _ssh_master
-
-  # Acquire the lock.  This is needed to prevent opening multiple masters for
-  # the same host when we're running "repo sync -jN" (for N > 1) _and_ the
-  # manifest <remote fetch="ssh://xyz"> specifies a different host from the
-  # one that was passed to repo init.
-  _master_keys_lock.acquire()
-  try:
-
-    # Check to see whether we already think that the master is running; if we
-    # think it's already running, return right away.
-    if port is not None:
-      key = '%s:%s' % (host, port)
-    else:
-      key = host
-
-    if key in _master_keys:
-      return True
-
-    if (not _ssh_master
-            or 'GIT_SSH' in os.environ
-            or sys.platform in ('win32', 'cygwin')):
-      # failed earlier, or cygwin ssh can't do this
-      #
-      return False
-
-    # We will make two calls to ssh; this is the common part of both calls.
-    command_base = ['ssh',
-                    '-o', 'ControlPath %s' % ssh_sock(),
-                    host]
-    if port is not None:
-      command_base[1:1] = ['-p', str(port)]
-
-    # Since the key wasn't in _master_keys, we think that master isn't running.
-    # ...but before actually starting a master, we'll double-check.  This can
-    # be important because we can't tell that that 'git@myhost.com' is the same
-    # as 'myhost.com' where "User git" is setup in the user's ~/.ssh/config file.
-    check_command = command_base + ['-O', 'check']
-    try:
-      Trace(': %s', ' '.join(check_command))
-      check_process = subprocess.Popen(check_command,
-                                       stdout=subprocess.PIPE,
-                                       stderr=subprocess.PIPE)
-      check_process.communicate()  # read output, but ignore it...
-      isnt_running = check_process.wait()
-
-      if not isnt_running:
-        # Our double-check found that the master _was_ infact running.  Add to
-        # the list of keys.
-        _master_keys.add(key)
-        return True
-    except Exception:
-      # Ignore excpetions.  We we will fall back to the normal command and print
-      # to the log there.
-      pass
-
-    command = command_base[:1] + ['-M', '-N'] + command_base[1:]
-    try:
-      Trace(': %s', ' '.join(command))
-      p = subprocess.Popen(command)
-    except Exception as e:
-      _ssh_master = False
-      print('\nwarn: cannot enable ssh control master for %s:%s\n%s'
-            % (host, port, str(e)), file=sys.stderr)
-      return False
-
-    time.sleep(1)
-    ssh_died = (p.poll() is not None)
-    if ssh_died:
-      return False
-
-    _master_processes.append(p)
-    _master_keys.add(key)
-    return True
-  finally:
-    _master_keys_lock.release()
-
-
-def close_ssh():
-  global _master_keys_lock
-
-  terminate_ssh_clients()
-
-  for p in _master_processes:
-    try:
-      os.kill(p.pid, signal.SIGTERM)
-      p.wait()
-    except OSError:
-      pass
-  del _master_processes[:]
-  _master_keys.clear()
-
-  d = ssh_sock(create=False)
-  if d:
-    try:
-      platform_utils.rmdir(os.path.dirname(d))
-    except OSError:
-      pass
-
-  # We're done with the lock, so we can delete it.
-  _master_keys_lock = None
-
-
-URI_SCP = re.compile(r'^([^@:]*@?[^:/]{1,}):')
 URI_ALL = re.compile(r'^([a-z][a-z+-]*)://([^@/]*@?[^/]*)/')
 
 
@@ -612,27 +493,6 @@ def GetUrlCookieFile(url, quiet):
   yield cookiefile, None
 
 
-def _preconnect(url):
-  m = URI_ALL.match(url)
-  if m:
-    scheme = m.group(1)
-    host = m.group(2)
-    if ':' in host:
-      host, port = host.split(':')
-    else:
-      port = None
-    if scheme in ('ssh', 'git+ssh', 'ssh+git'):
-      return _open_ssh(host, port)
-    return False
-
-  m = URI_SCP.match(url)
-  if m:
-    host = m.group(1)
-    return _open_ssh(host)
-
-  return False
-
-
 class Remote(object):
   """Configuration options related to a remote.
   """
@@ -669,9 +529,23 @@ class Remote(object):
 
     return self.url.replace(longest, longestUrl, 1)
 
-  def PreConnectFetch(self):
+  def PreConnectFetch(self, ssh_proxy):
+    """Run any setup for this remote before we connect to it.
+
+    In practice, if the remote is using SSH, we'll attempt to create a new
+    SSH master session to it for reuse across projects.
+
+    Args:
+      ssh_proxy: The SSH settings for managing master sessions.
+
+    Returns:
+      Whether the preconnect phase for this remote was successful.
+    """
+    if not ssh_proxy:
+      return True
+
     connectionUrl = self._InsteadOf()
-    return _preconnect(connectionUrl)
+    return ssh_proxy.preconnect(connectionUrl)
 
   def ReviewUrl(self, userEmail, validate_certs):
     if self._review_url is None:

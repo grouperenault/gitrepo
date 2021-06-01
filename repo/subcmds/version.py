@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2009 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
-
 import platform
 import sys
 
 from repo.command import Command, MirrorSafeCommand
 from repo.git_command import git, RepoSourceVersion, user_agent
 from repo.git_refs import HEAD
+from repo.wrapper import Wrapper
 
 
 class Version(Command, MirrorSafeCommand):
@@ -37,12 +34,14 @@ class Version(Command, MirrorSafeCommand):
   def Execute(self, opt, args):
     rp = self.manifest.repoProject
     rem = rp.GetRemote(rp.remote.name)
+    branch = rp.GetBranch('default')
 
     # These might not be the same.  Report them both.
     src_ver = RepoSourceVersion()
     rp_ver = rp.bare_git.describe(HEAD)
     print('repo version %s' % rp_ver)
     print('       (from %s)' % rem.url)
+    print('       (tracking %s)' % branch.merge)
     print('       (%s)' % rp.bare_git.log('-1', '--format=%cD', HEAD))
 
     if self.wrapper_path is not None:
@@ -64,3 +63,4 @@ class Version(Command, MirrorSafeCommand):
       print('OS %s %s (%s)' % (uname.system, uname.release, uname.version))
       print('CPU %s (%s)' %
             (uname.machine, uname.processor if uname.processor else 'unknown'))
+    print('Bug reports:', Wrapper().BUG_URL)

@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
-
 from collections import defaultdict
+import functools
+import itertools
 import sys
-from repo.command import Command
+from repo.command import Command, DEFAULT_LOCAL_JOBS
 from repo.git_command import git
 from repo.progress import Progress
 
@@ -34,11 +32,9 @@ deleting it (and all its history) from your local repository.
 
 It is equivalent to "git branch -D <branchname>".
 """
+  PARALLEL_JOBS = DEFAULT_LOCAL_JOBS
 
   def _Options(self, p):
-    p.add_option('-q', '--quiet',
-                 action='store_true', default=False,
-                 help='be quiet')
     p.add_option('--all',
                  dest='all', action='store_true',
                  help='delete all branches in all projects')
@@ -54,35 +50,44 @@ It is equivalent to "git branch -D <branchname>".
     else:
       args.insert(0, "'All local branches'")
 
+  def _ExecuteOne(self, all_branches, nb, project):
+    """Abandon one project."""
+    if all_branches:
+      branches = project.GetBranches()
+    else:
+      branches = [nb]
+
+    ret = {}
+    for name in branches:
+      status = project.AbandonBranch(name)
+      if status is not None:
+        ret[name] = status
+    return (ret, project)
+
   def Execute(self, opt, args):
     nb = args[0]
     err = defaultdict(list)
     success = defaultdict(list)
     all_projects = self.GetProjects(args[1:])
 
-    pm = Progress('Abandon %s' % nb, len(all_projects))
-    for project in all_projects:
-      pm.update()
-
-      if opt.all:
-        branches = list(project.GetBranches().keys())
-      else:
-        branches = [nb]
-
-      for name in branches:
-        status = project.AbandonBranch(name)
-        if status is not None:
+    def _ProcessResults(_pool, pm, states):
+      for (results, project) in states:
+        for branch, status in results.items():
           if status:
-            success[name].append(project)
+            success[branch].append(project)
           else:
-            err[name].append(project)
-    pm.end()
+            err[branch].append(project)
+        pm.update()
 
-    width = 25
-    for name in branches:
-      if width < len(name):
-        width = len(name)
+    self.ExecuteInParallel(
+        opt.jobs,
+        functools.partial(self._ExecuteOne, opt.all, nb),
+        all_projects,
+        callback=_ProcessResults,
+        output=Progress('Abandon %s' % (nb,), len(all_projects), quiet=opt.quiet))
 
+    width = max(itertools.chain(
+        [25], (len(x) for x in itertools.chain(success, err))))
     if err:
       for br in err.keys():
         err_msg = "error: cannot abandon %s" % br

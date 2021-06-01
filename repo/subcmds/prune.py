@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
 from repo.color import Coloring
-from repo.command import PagedCommand
+from repo.command import DEFAULT_LOCAL_JOBS, PagedCommand
+import itertools
 
 
 class Prune(PagedCommand):
@@ -25,11 +23,26 @@ class Prune(PagedCommand):
   helpUsage = """
 %prog [<project>...]
 """
+  PARALLEL_JOBS = DEFAULT_LOCAL_JOBS
+
+  def _ExecuteOne(self, project):
+    """Process one project."""
+    return project.PruneHeads()
 
   def Execute(self, opt, args):
-    all_branches = []
-    for project in self.GetProjects(args):
-      all_branches.extend(project.PruneHeads())
+    projects = self.GetProjects(args)
+
+    # NB: Should be able to refactor this module to display summary as results
+    # come back from children.
+    def _ProcessResults(_pool, _output, results):
+      return list(itertools.chain.from_iterable(results))
+
+    all_branches = self.ExecuteInParallel(
+        opt.jobs,
+        self._ExecuteOne,
+        projects,
+        callback=_ProcessResults,
+        ordered=True)
 
     if not all_branches:
       return

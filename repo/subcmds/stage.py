@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
 import sys
 
 from repo.color import Coloring
@@ -41,7 +38,8 @@ The '%prog' command stages files to prepare the next commit.
 """
 
   def _Options(self, p):
-    p.add_option('-i', '--interactive',
+    g = p.get_option_group('--quiet')
+    g.add_option('-i', '--interactive',
                  dest='interactive', action='store_true',
                  help='use interactive staging')
 

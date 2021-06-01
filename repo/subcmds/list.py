@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2011 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,10 +22,15 @@ class List(Command, MirrorSafeCommand):
   helpSummary = "List projects and their associated directories"
   helpUsage = """
 %prog [-f] [<project>...]
-%prog [-f] -r str1 [str2]..."
+%prog [-f] -r str1 [str2]...
 """
   helpDescription = """
 List all projects; pass '.' to list the project for the cwd.
+
+By default, only projects that currently exist in the checkout are shown.  If
+you want to list all projects (using the specified filter settings), use the
+--all option.  If you want to show all projects regardless of the manifest
+groups, then also pass --groups all.
 
 This is similar to running: repo forall -c 'echo "$REPO_PATH : $REPO_PROJECT"'.
 """
@@ -35,19 +38,22 @@ This is similar to running: repo forall -c 'echo "$REPO_PATH : $REPO_PROJECT"'.
   def _Options(self, p):
     p.add_option('-r', '--regex',
                  dest='regex', action='store_true',
-                 help="Filter the project list based on regex or wildcard matching of strings")
+                 help='filter the project list based on regex or wildcard matching of strings')
     p.add_option('-g', '--groups',
                  dest='groups',
-                 help="Filter the project list based on the groups the project is in")
+                 help='filter the project list based on the groups the project is in')
+    p.add_option('-a', '--all',
+                 action='store_true',
+                 help='show projects regardless of checkout state')
     p.add_option('-f', '--fullpath',
                  dest='fullpath', action='store_true',
-                 help="Display the full work tree path instead of the relative path")
+                 help='display the full work tree path instead of the relative path')
     p.add_option('-n', '--name-only',
                  dest='name_only', action='store_true',
-                 help="Display only the name of the repository")
+                 help='display only the name of the repository')
     p.add_option('-p', '--path-only',
                  dest='path_only', action='store_true',
-                 help="Display only the path of the repository")
+                 help='display only the path of the repository')
 
   def ValidateOptions(self, opt, args):
     if opt.fullpath and opt.name_only:
@@ -65,7 +71,7 @@ This is similar to running: repo forall -c 'echo "$REPO_PATH : $REPO_PROJECT"'.
       args: Positional args.  Can be a list of projects to list, or empty.
     """
     if not opt.regex:
-      projects = self.GetProjects(args, groups=opt.groups)
+      projects = self.GetProjects(args, groups=opt.groups, missing_ok=opt.all)
     else:
       projects = self.FindProjects(args)
 
@@ -83,5 +89,6 @@ This is similar to running: repo forall -c 'echo "$REPO_PATH : $REPO_PROJECT"'.
       else:
         lines.append("%s : %s" % (_getpath(project), project.name))
 
-    lines.sort()
-    print('\n'.join(lines))
+    if lines:
+      lines.sort()
+      print('\n'.join(lines))

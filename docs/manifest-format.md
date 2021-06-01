@@ -21,6 +21,7 @@ following DTD:
 
 ```xml
 <!DOCTYPE manifest [
+
   <!ELEMENT manifest (notice?,
                       remote*,
                       default?,
@@ -29,6 +30,8 @@ following DTD:
                       project*,
                       extend-project*,
                       repo-hooks?,
+                      superproject?,
+                      contactinfo?,
                       include*)>
 
   <!ELEMENT notice (#PCDATA)>
@@ -98,10 +101,24 @@ following DTD:
   <!ATTLIST repo-hooks in-project CDATA #REQUIRED>
   <!ATTLIST repo-hooks enabled-list CDATA #REQUIRED>
 
+  <!ELEMENT superproject EMPTY>
+  <!ATTLIST superproject name    CDATA #REQUIRED>
+  <!ATTLIST superproject remote  IDREF #IMPLIED>
+
+  <!ELEMENT contactinfo EMPTY>
+  <!ATTLIST contactinfo bugurl  CDATA #REQUIRED>
+
   <!ELEMENT include EMPTY>
-  <!ATTLIST include name CDATA #REQUIRED>
+  <!ATTLIST include name   CDATA #REQUIRED>
+  <!ATTLIST include groups CDATA #IMPLIED>
 ]>
 ```
+
+For compatibility purposes across repo releases, all unknown elements are
+silently ignored.  However, repo reserves all possible names for itself for
+future use.  If you want to use custom elements, the `x-*` namespace is
+reserved for that purpose, and repo guarantees to never allocate any
+corresponding names.
 
 A description of the elements and their attributes follows.
 
@@ -110,6 +127,10 @@ A description of the elements and their attributes follows.
 
 The root element of the file.
 
+### Element notice
+
+Arbitrary text that is displayed to users whenever `repo sync` finishes.
+The content is simply passed through as it exists in the manifest.
 
 ### Element remote
 
@@ -142,8 +163,8 @@ Attribute `review`: Hostname of the Gerrit server where reviews
 are uploaded to by `repo upload`.  This attribute is optional;
 if not specified then `repo upload` will not function.
 
-Attribute `revision`: Name of a Git branch (e.g. `master` or
-`refs/heads/master`). Remotes with their own revision will override
+Attribute `revision`: Name of a Git branch (e.g. `main` or
+`refs/heads/main`). Remotes with their own revision will override
 the default revision.
 
 ### Element default
@@ -156,11 +177,11 @@ Attribute `remote`: Name of a previously defined remote element.
 Project elements lacking a remote attribute of their own will use
 this remote.
 
-Attribute `revision`: Name of a Git branch (e.g. `master` or
-`refs/heads/master`).  Project elements lacking their own
+Attribute `revision`: Name of a Git branch (e.g. `main` or
+`refs/heads/main`).  Project elements lacking their own
 revision attribute will use this revision.
 
-Attribute `dest-branch`: Name of a Git branch (e.g. `master`).
+Attribute `dest-branch`: Name of a Git branch (e.g. `main`).
 Project elements not setting their own `dest-branch` will inherit
 this value. If this value is not set, projects will use `revision`
 by default instead.
@@ -236,24 +257,37 @@ name will be prefixed by the parent's.
 The project name must match the name Gerrit knows, if Gerrit is
 being used for code reviews.
 
+"name" must not be empty, and may not be an absolute path or use "." or ".."
+path components.  It is always interpreted relative to the remote's fetch
+settings, so if a different base path is needed, declare a different remote
+with the new settings needed.
+These restrictions are not enforced for [Local Manifests].
+
 Attribute `path`: An optional path relative to the top directory
 of the repo client where the Git working directory for this project
-should be placed.  If not supplied the project name is used.
+should be placed.  If not supplied the project "name" is used.
 If the project has a parent element, its path will be prefixed
 by the parent's.
+
+"path" may not be an absolute path or use "." or ".." path components.
+These restrictions are not enforced for [Local Manifests].
+
+If you want to place files into the root of the checkout (e.g. a README or
+Makefile or another build script), use the [copyfile] or [linkfile] elements
+instead.
 
 Attribute `remote`: Name of a previously defined remote element.
 If not supplied the remote given by the default element is used.
 
 Attribute `revision`: Name of the Git branch the manifest wants
 to track for this project.  Names can be relative to refs/heads
-(e.g. just "master") or absolute (e.g. "refs/heads/master").
+(e.g. just "main") or absolute (e.g. "refs/heads/main").
 Tags and/or explicit SHA-1s should work in theory, but have not
 been extensively tested.  If not supplied the revision given by
 the remote element is used if applicable, else the default
 element is used.
 
-Attribute `dest-branch`: Name of a Git branch (e.g. `master`).
+Attribute `dest-branch`: Name of a Git branch (e.g. `main`).
 When using `repo upload`, changes will be submitted for code
 review on this branch. If unspecified both here and in the
 default element, `revision` is used instead.
@@ -262,7 +296,7 @@ Attribute `groups`: List of groups to which this project belongs,
 whitespace or comma separated.  All projects belong to the group
 "all", and each project automatically belongs to a group of
 its name:`name` and path:`path`.  E.g. for
-<project name="monkeys" path="barrel-of"/>, that project
+`<project name="monkeys" path="barrel-of"/>`, that project
 definition is implicitly in the following manifest groups:
 default, name:monkeys, and path:barrel-of.  If you place a project in the
 group "notdefault", it will not be automatically downloaded by repo.
@@ -359,6 +393,54 @@ This element is mostly useful in a local manifest file, where
 the user can remove a project, and possibly replace it with their
 own definition.
 
+### Element repo-hooks
+
+NB: See the [practical documentation](./repo-hooks.md) for using repo hooks.
+
+Only one repo-hooks element may be specified at a time.
+Attempting to redefine it will fail to parse.
+
+Attribute `in-project`: The project where the hooks are defined.  The value
+must match the `name` attribute (**not** the `path` attribute) of a previously
+defined `project` element.
+
+Attribute `enabled-list`: List of hooks to use, whitespace or comma separated.
+
+### Element superproject
+
+***
+*Note*: This is currently a WIP.
+***
+
+NB: See the [git superprojects documentation](
+https://en.wikibooks.org/wiki/Git/Submodules_and_Superprojects) for background
+information.
+
+This element is used to specify the URL of the superproject. It has "name" and
+"remote" as atrributes. Only "name" is required while the others have
+reasonable defaults. At most one superproject may be specified.
+Attempting to redefine it will fail to parse.
+
+Attribute `name`: A unique name for the superproject. This attribute has the
+same meaning as project's name attribute. See the
+[element project](#element-project) for more information.
+
+Attribute `remote`: Name of a previously defined remote element.
+If not supplied the remote given by the default element is used.
+
+### Element contactinfo
+
+***
+*Note*: This is currently a WIP.
+***
+
+This element is used to let manifest authors self-register contact info.
+It has "bugurl" as a required atrribute. This element can be repeated,
+and any later entries will clobber earlier ones. This would allow manifest
+authors who extend manifests to specify their own contact info.
+
+Attribute `bugurl`: The URL to file a bug against the manifest owner.
+
 ### Element include
 
 This element provides the capability of including another manifest
@@ -368,8 +450,15 @@ target manifest to include - it must be a usable manifest on its own.
 Attribute `name`: the manifest to include, specified relative to
 the manifest repository's root.
 
+"name" may not be an absolute path or use "." or ".." path components.
+These restrictions are not enforced for [Local Manifests].
 
-## Local Manifests
+Attribute `groups`: List of additional groups to which all projects
+in the included manifest belong. This appends and recurses, meaning
+all projects in sub-manifests carry all parent include groups.
+Same syntax as the corresponding element of `project`.
+
+## Local Manifests {#local-manifests}
 
 Additional remotes and projects may be added through local manifest
 files stored in `$TOP_DIR/.repo/local_manifests/*.xml`.
@@ -396,10 +485,9 @@ these extra projects.
 Manifest files stored in `$TOP_DIR/.repo/local_manifests/*.xml` will
 be loaded in alphabetical order.
 
-Additional remotes and projects may also be added through a local
-manifest, stored in `$TOP_DIR/.repo/local_manifest.xml`. This method
-is deprecated in favor of using multiple manifest files as mentioned
-above.
+The legacy `$TOP_DIR/.repo/local_manifest.xml` path is no longer supported.
 
-If `$TOP_DIR/.repo/local_manifest.xml` exists, it will be loaded before
-any manifest files stored in `$TOP_DIR/.repo/local_manifests/*.xml`.
+
+[copyfile]: #Element-copyfile
+[linkfile]: #Element-linkfile
+[Local Manifests]: #local-manifests

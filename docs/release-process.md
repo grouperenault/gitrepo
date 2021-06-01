@@ -5,6 +5,37 @@ related topics and flows.
 
 [TOC]
 
+## Schedule
+
+There is no specific schedule for when releases are made.
+Usually it's more along the lines of "enough minor changes have been merged",
+or "there's a known issue the maintainers know should get fixed".
+If you find a fix has been merged for an issue important to you, but hasn't been
+released after a week or so, feel free to [contact] us to request a new release.
+
+### Release Freezes {#freeze}
+
+We try to observe a regular schedule for when **not** to release.
+If something goes wrong, staff need to be active in order to respond quickly &
+effectively.
+We also don't want to disrupt non-Google organizations if possible.
+
+We generally follow the rules:
+
+* Release during Mon - Thu, 9:00 - 14:00 [US PT]
+* Avoid holidays
+  * All regular [US holidays]
+  * Large international ones if possible
+  * All the various [New Years]
+    * Jan 1 in Gregorian calendar is the most obvious
+    * Check for large Lunar New Years too
+* Follow the normal [Google production freeze schedule]
+
+[US holidays]: https://en.wikipedia.org/wiki/Federal_holidays_in_the_United_States
+[US PT]: https://en.wikipedia.org/wiki/Pacific_Time_Zone
+[New Years]: https://en.wikipedia.org/wiki/New_Year
+[Google production freeze schedule]: http://goto.google.com/prod-freeze
+
 ## Launcher script
 
 The main repo script serves as a standalone program and is often referred to as
@@ -52,7 +83,8 @@ control how repo finds updates:
 *   `--repo-rev`: This tells repo which branch to use for the full project.
     It defaults to the `stable` branch (`REPO_REV` in the launcher script).
 
-Whenever `repo sync` is run, repo will check to see if an update is available.
+Whenever `repo sync` is run, repo will, once every 24 hours, see if an update
+is available.
 It fetches the latest repo-rev from the repo-url.
 Then it verifies that the latest commit in the branch has a valid signed tag
 using `git tag -v` (which uses gpg).
@@ -64,9 +96,14 @@ If that tag is valid, then repo will warn and use that commit instead.
 
 If that tag cannot be verified, it gives up and forces the user to resolve.
 
+### Force an update
+
+The `repo selfupdate` command can be used to force an immediate update.
+It is not subject to the 24 hour limitation.
+
 ## Branch management
 
-All development happens on the `master` branch and should generally be stable.
+All development happens on the `main` branch and should generally be stable.
 
 Since the repo launcher defaults to tracking the `stable` branch, it is not
 normally updated until a new release is available.
@@ -81,7 +118,7 @@ For example, when `stable` moves from `v1.10.x` to `v1.11.x`, then the `maint`
 branch will be updated from `v1.9.x` to `v1.10.x`.
 
 We don't have parallel release branches/series.
-Typically all tags are made against the `master` branch and then pushed to the
+Typically all tags are made against the `main` branch and then pushed to the
 `stable` branch to make it available to the rest of the world.
 Since repo doesn't typically see a lot of changes, this tends to be OK.
 
@@ -89,10 +126,10 @@ Since repo doesn't typically see a lot of changes, this tends to be OK.
 
 When you want to create a new release, you'll need to select a good version and
 create a signed tag using a key registered in repo itself.
-Typically we just tag the latest version of the `master` branch.
+Typically we just tag the latest version of the `main` branch.
 The tag could be pushed now, but it won't be used by clients normally (since the
 default `repo-rev` setting is `stable`).
-This would allow some early testing on systems who explicitly select `master`.
+This would allow some early testing on systems who explicitly select `main`.
 
 ### Creating a signed tag
 
@@ -113,7 +150,7 @@ $ export GNUPGHOME=~/.gnupg/repo/
 $ gpg -K
 
 # Pick whatever branch or commit you want to tag.
-$ r=master
+$ r=main
 
 # Pick the new version.
 $ t=1.12.10
@@ -242,6 +279,7 @@ Things in italics are things we used to care about but probably don't anymore.
 | Apr 2020 | **Apr 2030** |              |                 | **20.04 Focal**      | 2.25.0   | 2.7.17 3.7.5 |
 
 
+[contact]: ../README.md#contact
 [rel-d]: https://en.wikipedia.org/wiki/Debian_version_history
 [rel-g]: https://en.wikipedia.org/wiki/Git#Releases
 [rel-p]: https://en.wikipedia.org/wiki/History_of_Python#Table_of_versions

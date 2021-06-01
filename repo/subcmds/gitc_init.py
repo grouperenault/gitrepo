@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2015 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
 import os
 import sys
 
@@ -50,14 +47,7 @@ use for this GITC client.
 """
 
   def _Options(self, p):
-    super(GitcInit, self)._Options(p, gitc_init=True)
-    g = p.add_option_group('GITC options')
-    g.add_option('-f', '--manifest-file',
-                 dest='manifest_file',
-                 help='Optional manifest file to use for this GITC client.')
-    g.add_option('-c', '--gitc-client',
-                 dest='gitc_client',
-                 help='The name of the gitc_client instance to create or modify.')
+    super()._Options(p, gitc_init=True)
 
   def Execute(self, opt, args):
     gitc_client = gitc_utils.parse_clientdir(os.getcwd())
@@ -67,7 +57,7 @@ use for this GITC client.
       sys.exit(1)
     self.client_dir = os.path.join(gitc_utils.get_gitc_manifest_dir(),
                                    gitc_client)
-    super(GitcInit, self).Execute(opt, args)
+    super().Execute(opt, args)
 
     manifest_file = self.manifest.manifestFile
     if opt.manifest_file:

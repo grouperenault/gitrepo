@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,18 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
-
+import functools
 import glob
-import itertools
+import io
 import os
 
-from repo.command import PagedCommand
-
-try:
-  import threading as _threading
-except ImportError:
-  import dummy_threading as _threading
+from repo.command import DEFAULT_LOCAL_JOBS, PagedCommand
 
 from repo.color import Coloring
 from repo import platform_utils
@@ -84,36 +76,29 @@ the following meanings:
  d:  deleted       (    in index, not in work tree                )
 
 """
+  PARALLEL_JOBS = DEFAULT_LOCAL_JOBS
 
   def _Options(self, p):
-    p.add_option('-j', '--jobs',
-                 dest='jobs', action='store', type='int', default=2,
-                 help="number of projects to check simultaneously")
     p.add_option('-o', '--orphans',
                  dest='orphans', action='store_true',
                  help="include objects in working directory outside of repo projects")
-    p.add_option('-q', '--quiet', action='store_true',
-                 help="only print the name of modified projects")
 
-  def _StatusHelper(self, project, clean_counter, sem, quiet):
+  def _StatusHelper(self, quiet, project):
     """Obtains the status for a specific project.
 
     Obtains the status for a project, redirecting the output to
-    the specified object. It will release the semaphore
-    when done.
+    the specified object.
 
     Args:
+      quiet: Where to output the status.
       project: Project to get status of.
-      clean_counter: Counter for clean projects.
-      sem: Semaphore, will call release() when complete.
-      output: Where to output the status.
+
+    Returns:
+      The status of the project.
     """
-    try:
-      state = project.PrintWorkTreeStatus(quiet=quiet)
-      if state == 'CLEAN':
-        next(clean_counter)
-    finally:
-      sem.release()
+    buf = io.StringIO()
+    ret = project.PrintWorkTreeStatus(quiet=quiet, output_redir=buf)
+    return (ret, buf.getvalue())
 
   def _FindOrphans(self, dirs, proj_dirs, proj_dirs_parents, outstring):
     """find 'dirs' that are present in 'proj_dirs_parents' but not in 'proj_dirs'"""
@@ -133,27 +118,24 @@ the following meanings:
 
   def Execute(self, opt, args):
     all_projects = self.GetProjects(args)
-    counter = itertools.count()
 
-    if opt.jobs == 1:
-      for project in all_projects:
-        state = project.PrintWorkTreeStatus(quiet=opt.quiet)
+    def _ProcessResults(_pool, _output, results):
+      ret = 0
+      for (state, output) in results:
+        if output:
+          print(output, end='')
         if state == 'CLEAN':
-          next(counter)
-    else:
-      sem = _threading.Semaphore(opt.jobs)
-      threads = []
-      for project in all_projects:
-        sem.acquire()
+          ret += 1
+      return ret
 
-        t = _threading.Thread(target=self._StatusHelper,
-                              args=(project, counter, sem, opt.quiet))
-        threads.append(t)
-        t.daemon = True
-        t.start()
-      for t in threads:
-        t.join()
-    if not opt.quiet and len(all_projects) == next(counter):
+    counter = self.ExecuteInParallel(
+        opt.jobs,
+        functools.partial(self._StatusHelper, opt.quiet),
+        all_projects,
+        callback=_ProcessResults,
+        ordered=True)
+
+    if not opt.quiet and len(all_projects) == counter:
       print('nothing to commit (working directory clean)')
 
     if opt.orphans:
@@ -183,7 +165,7 @@ the following meanings:
                           proj_dirs, proj_dirs_parents, outstring)
 
         if outstring:
-          output = StatusColoring(self.manifest.globalConfig)
+          output = StatusColoring(self.client.globalConfig)
           output.project('Objects not within a project (orphans)')
           output.nl()
           for entry in outstring:

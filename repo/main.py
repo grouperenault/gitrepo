@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-# -*- coding:utf-8 -*-
+#!/usr/bin/env python3
 #
 # Copyright (C) 2008 The Android Open Source Project
 #
@@ -21,8 +20,8 @@ People shouldn't run this directly; instead, they should use the `repo` wrapper
 which takes care of execing this entry point.
 """
 
-from __future__ import print_function
 import getpass
+import errno
 import netrc
 import optparse
 import os
@@ -31,14 +30,7 @@ import sys
 import textwrap
 import time
 
-from repo.pyversion import is_python3
-if is_python3():
-  import urllib.request
-else:
-  import imp
-  import urllib2
-  urllib = imp.new_module('urllib')
-  urllib.request = urllib2
+import urllib.request
 
 try:
   import kerberos
@@ -49,7 +41,7 @@ from repo.color import SetDefaultColoring
 from repo import event_log
 from repo.trace import SetTrace
 from repo.git_command import user_agent
-from repo.git_config import init_ssh, close_ssh, RepoConfig
+from repo.git_config import RepoConfig
 from repo.command import InteractiveCommand
 from repo.command import MirrorSafeCommand
 from repo.command import GitcAvailableCommand, GitcClientCommand
@@ -62,15 +54,14 @@ from repo.error import ManifestParseError
 from repo.error import NoManifestException
 from repo.error import NoSuchProjectError
 from repo.error import RepoChangedException
+from repo.event_log import EventLog
 from repo import gitc_utils
-from repo.manifest_xml import GitcManifest, XmlManifest
+from repo.manifest_xml import GitcClient, RepoClient
 from repo.pager import RunPager, TerminatePager
 from repo.wrapper import WrapperPath, Wrapper
 
 from repo.subcmds import all_commands
 
-if not is_python3():
-  input = raw_input  # noqa: F821
 
 # NB: These do not need to be kept in sync with the repo launcher script.
 # These may be much newer as it allows the repo launcher to roll between
@@ -82,12 +73,13 @@ if not is_python3():
 #
 # python-3.6 is in Ubuntu Bionic.
 MIN_PYTHON_VERSION_SOFT = (3, 6)
-MIN_PYTHON_VERSION_HARD = (3, 4)
+MIN_PYTHON_VERSION_HARD = (3, 5)
 
 if sys.version_info.major < 3:
-  print('repo: warning: Python 2 is no longer supported; '
+  print('repo: error: Python 2 is no longer supported; '
         'Please upgrade to Python {}.{}+.'.format(*MIN_PYTHON_VERSION_SOFT),
         file=sys.stderr)
+  sys.exit(1)
 else:
   if sys.version_info < MIN_PYTHON_VERSION_HARD:
     print('repo: error: Python 3 version is too old; '
@@ -129,6 +121,8 @@ global_options.add_option('--version',
 global_options.add_option('--event-log',
                           dest='event_log', action='store',
                           help='filename of event log to append timeline to')
+global_options.add_option('--git-trace2-event-log', action='store',
+                          help='directory to write git trace2 event log to')
 
 
 class _Repo(object):
@@ -208,15 +202,18 @@ class _Repo(object):
       print("repo: '%s' is not a repo command.  See 'repo help'." % name,
             file=sys.stderr)
       return 1
+
+    git_trace2_event_log = EventLog()
     cmd.repodir = self.repodir
-    cmd.manifest = XmlManifest(cmd.repodir)
+    cmd.client = RepoClient(cmd.repodir)
+    cmd.manifest = cmd.client.manifest
     cmd.gitc_manifest = None
     gitc_client_name = gitc_utils.parse_clientdir(os.getcwd())
     if gitc_client_name:
-      cmd.gitc_manifest = GitcManifest(cmd.repodir, gitc_client_name)
-      cmd.manifest.isGitcClient = True
+      cmd.gitc_manifest = GitcClient(cmd.repodir, gitc_client_name)
+      cmd.client.isGitcClient = True
 
-    Editor.globalConfig = cmd.manifest.globalConfig
+    Editor.globalConfig = cmd.client.globalConfig
 
     if not isinstance(cmd, MirrorSafeCommand) and cmd.manifest.IsMirror:
       print("fatal: '%s' requires a working directory" % name,
@@ -244,7 +241,7 @@ class _Repo(object):
       return 1
 
     if gopts.pager is not False and not isinstance(cmd, InteractiveCommand):
-      config = cmd.manifest.globalConfig
+      config = cmd.client.globalConfig
       if gopts.pager:
         use_pager = True
       else:
@@ -257,7 +254,11 @@ class _Repo(object):
     start = time.time()
     cmd_event = cmd.event_log.Add(name, event_log.TASK_COMMAND, start)
     cmd.event_log.SetParent(cmd_event)
+    git_trace2_event_log.StartEvent()
+    git_trace2_event_log.CommandEvent(name='repo', subcommands=[name])
+
     try:
+      cmd.CommonValidateOptions(copts, cargs)
       cmd.ValidateOptions(copts, cargs)
       result = cmd.Execute(copts, cargs)
     except (DownloadError, ManifestInvalidRevisionError,
@@ -299,10 +300,15 @@ class _Repo(object):
 
       cmd.event_log.FinishEvent(cmd_event, finish,
                                 result is None or result == 0)
+      git_trace2_event_log.DefParamRepoEvents(
+          cmd.manifest.manifestProject.config.DumpConfigDict())
+      git_trace2_event_log.ExitEvent(result)
+
       if gopts.event_log:
         cmd.event_log.Write(os.path.abspath(
                             os.path.expanduser(gopts.event_log)))
 
+      git_trace2_event_log.Write(gopts.git_trace2_event_log)
     return result
 
 
@@ -588,7 +594,7 @@ def _MkRepoDir(repodir):
     os.mkdir(repodir)
   except OSError as e:
     if e.errno != errno.EEXIST:
-      _print('fatal: cannot make %s directory: %s'
+      print('fatal: cannot make %s directory: %s'
              % (repodir, e.strerror), file=sys.stderr)
       # Don't raise CloneFailure; that would delete the
       # name. Instead exit immediately.
@@ -603,20 +609,16 @@ def _Main(argv):
     _MkRepoDir(repodir)
   repo = _Repo(repodir)
   try:
-    try:
-      init_ssh()
-      init_http()
-      name, gopts, argv = repo._ParseArgs(argv)
-      run = lambda: repo._Run(name, gopts, argv) or 0
-      if gopts.trace_python:
-        import trace
-        tracer = trace.Trace(count=False, trace=True, timing=True,
-                             ignoredirs=set(sys.path[1:]))
-        result = tracer.runfunc(run)
-      else:
-        result = run()
-    finally:
-      close_ssh()
+    init_http()
+    name, gopts, argv = repo._ParseArgs(argv)
+    run = lambda: repo._Run(name, gopts, argv) or 0
+    if gopts.trace_python:
+      import trace
+      tracer = trace.Trace(count=False, trace=True, timing=True,
+                           ignoredirs=set(sys.path[1:]))
+      result = tracer.runfunc(run)
+    else:
+      result = run()
   except KeyboardInterrupt:
     print('aborted by user', file=sys.stderr)
     result = 1

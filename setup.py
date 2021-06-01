@@ -1,4 +1,5 @@
-# -*- coding:utf-8 -*-
+#!/usr/bin/env python3
+# Copyright 2019 The Android Open Source Project
 #
 # Copyright (C) 2020 The Android Open Source Project
 #
@@ -15,6 +16,7 @@
 # limitations under the License.
 
 from setuptools import setup, find_packages
+
 with open("README.md", "r") as fh:
     long_description = fh.read()
 

@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from repo.command import PagedCommand
+from repo.command import PagedCommand, DEFAULT_LOCAL_JOBS
+import functools
+import io
 
 
 class Diff(PagedCommand):
@@ -27,15 +27,42 @@ The -u option causes '%prog' to generate diff output with file paths
 relative to the repository root, so the output can be applied
 to the Unix 'patch' command.
 """
+  PARALLEL_JOBS = DEFAULT_LOCAL_JOBS
 
   def _Options(self, p):
     p.add_option('-u', '--absolute',
                  dest='absolute', action='store_true',
-                 help='Paths are relative to the repository root')
+                 help='paths are relative to the repository root')
+
+  def _ExecuteOne(self, absolute, project):
+    """Obtains the diff for a specific project.
+
+    Args:
+      absolute: Paths are relative to the root.
+      project: Project to get status of.
+
+    Returns:
+      The status of the project.
+    """
+    buf = io.StringIO()
+    ret = project.PrintWorkTreeDiff(absolute, output_redir=buf)
+    return (ret, buf.getvalue())
 
   def Execute(self, opt, args):
-    ret = 0
-    for project in self.GetProjects(args):
-      if not project.PrintWorkTreeDiff(opt.absolute):
-        ret = 1
-    return ret
+    all_projects = self.GetProjects(args)
+
+    def _ProcessResults(_pool, _output, results):
+      ret = 0
+      for (state, output) in results:
+        if output:
+          print(output, end='')
+        if not state:
+          ret = 1
+      return ret
+
+    return self.ExecuteInParallel(
+        opt.jobs,
+        functools.partial(self._ExecuteOne, opt.absolute),
+        all_projects,
+        callback=_ProcessResults,
+        ordered=True)

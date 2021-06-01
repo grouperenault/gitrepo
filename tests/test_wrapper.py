@@ -1,5 +1,3 @@
-# -*- coding:utf-8 -*-
-#
 # Copyright (C) 2015 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,26 +14,19 @@
 
 """Unittests for the wrapper.py module."""
 
-from __future__ import print_function
-
 import contextlib
+from io import StringIO
 import os
 import re
 import shutil
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
-from repo.pyversion import is_python3
+from repo import git_command, main
 from repo import wrapper
 from repo import platform_utils
-
-
-if is_python3():
-  from unittest import mock
-  from io import StringIO
-else:
-  import mock
-  from StringIO import StringIO
 
 
 @contextlib.contextmanager
@@ -65,9 +56,6 @@ class RepoWrapperTestCase(unittest.TestCase):
     wrapper._gitc_manifest_dir = None  # reset cache
     self.wrapper = wrapper.Wrapper()
 
-    if not is_python3():
-      self.assertRegex = self.assertRegexpMatches
-
 
 class RepoWrapperUnitTest(RepoWrapperTestCase):
   """Tests helper functions in the repo wrapper
@@ -82,6 +70,16 @@ class RepoWrapperUnitTest(RepoWrapperTestCase):
     self.assertEqual(0, e.exception.code)
     self.assertEqual('', stderr.getvalue())
     self.assertIn('repo launcher version', stdout.getvalue())
+
+  def test_python_constraints(self):
+    """The launcher should never require newer than main.py."""
+    self.assertGreaterEqual(main.MIN_PYTHON_VERSION_HARD,
+                            wrapper.MIN_PYTHON_VERSION_HARD)
+    self.assertGreaterEqual(main.MIN_PYTHON_VERSION_SOFT,
+                            wrapper.MIN_PYTHON_VERSION_SOFT)
+    # Make sure the versions are themselves in sync.
+    self.assertGreaterEqual(wrapper.MIN_PYTHON_VERSION_SOFT,
+                            wrapper.MIN_PYTHON_VERSION_HARD)
 
   def test_init_parser(self):
     """Make sure 'init' GetParser works."""
@@ -258,6 +256,81 @@ class CheckGitVersion(RepoWrapperTestCase):
       self.wrapper._CheckGitVersion()
 
 
+class Requirements(RepoWrapperTestCase):
+  """Check Requirements handling."""
+
+  def test_missing_file(self):
+    """Don't crash if the file is missing (old version)."""
+    testdir = os.path.dirname(os.path.realpath(__file__))
+    self.assertIsNone(self.wrapper.Requirements.from_dir(testdir))
+    self.assertIsNone(self.wrapper.Requirements.from_file(
+        os.path.join(testdir, 'xxxxxxxxxxxxxxxxxxxxxxxx')))
+
+  def test_corrupt_data(self):
+    """If the file can't be parsed, don't blow up."""
+    self.assertIsNone(self.wrapper.Requirements.from_file(__file__))
+    self.assertIsNone(self.wrapper.Requirements.from_data(b'x'))
+
+  def test_valid_data(self):
+    """Make sure we can parse the file we ship."""
+    self.assertIsNotNone(self.wrapper.Requirements.from_data(b'{}'))
+    rootdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    self.assertIsNotNone(self.wrapper.Requirements.from_dir(rootdir))
+    self.assertIsNotNone(self.wrapper.Requirements.from_file(os.path.join(
+        rootdir, 'requirements.json')))
+
+  def test_format_ver(self):
+    """Check format_ver can format."""
+    self.assertEqual('1.2.3', self.wrapper.Requirements._format_ver((1, 2, 3)))
+    self.assertEqual('1', self.wrapper.Requirements._format_ver([1]))
+
+  def test_assert_all_unknown(self):
+    """Check assert_all works with incompatible file."""
+    reqs = self.wrapper.Requirements({})
+    reqs.assert_all()
+
+  def test_assert_all_new_repo(self):
+    """Check assert_all accepts new enough repo."""
+    reqs = self.wrapper.Requirements({'repo': {'hard': [1, 0]}})
+    reqs.assert_all()
+
+  def test_assert_all_old_repo(self):
+    """Check assert_all rejects old repo."""
+    reqs = self.wrapper.Requirements({'repo': {'hard': [99999, 0]}})
+    with self.assertRaises(SystemExit):
+      reqs.assert_all()
+
+  def test_assert_all_new_python(self):
+    """Check assert_all accepts new enough python."""
+    reqs = self.wrapper.Requirements({'python': {'hard': sys.version_info}})
+    reqs.assert_all()
+
+  def test_assert_all_old_python(self):
+    """Check assert_all rejects old python."""
+    reqs = self.wrapper.Requirements({'python': {'hard': [99999, 0]}})
+    with self.assertRaises(SystemExit):
+      reqs.assert_all()
+
+  def test_assert_ver_unknown(self):
+    """Check assert_ver works with incompatible file."""
+    reqs = self.wrapper.Requirements({})
+    reqs.assert_ver('xxx', (1, 0))
+
+  def test_assert_ver_new(self):
+    """Check assert_ver allows new enough versions."""
+    reqs = self.wrapper.Requirements({'git': {'hard': [1, 0], 'soft': [2, 0]}})
+    reqs.assert_ver('git', (1, 0))
+    reqs.assert_ver('git', (1, 5))
+    reqs.assert_ver('git', (2, 0))
+    reqs.assert_ver('git', (2, 5))
+
+  def test_assert_ver_old(self):
+    """Check assert_ver rejects old versions."""
+    reqs = self.wrapper.Requirements({'git': {'hard': [1, 0], 'soft': [2, 0]}})
+    with self.assertRaises(SystemExit):
+      reqs.assert_ver('git', (0, 5))
+
+
 class NeedSetupGnuPG(RepoWrapperTestCase):
   """Check NeedSetupGnuPG behavior."""
 
@@ -358,7 +431,19 @@ class GitCheckoutTestCase(RepoWrapperTestCase):
 
     remote = os.path.join(cls.GIT_DIR, 'remote')
     os.mkdir(remote)
-    run_git('init', cwd=remote)
+
+    # Tests need to assume, that main is default branch at init,
+    # which is not supported in config until 2.28.
+    if git_command.git_require((2, 28, 0)):
+      initstr = '--initial-branch=main'
+    else:
+      # Use template dir for init.
+      templatedir = tempfile.mkdtemp(prefix='.test-template')
+      with open(os.path.join(templatedir, 'HEAD'), 'w') as fp:
+        fp.write('ref: refs/heads/main\n')
+      initstr = '--template=' + templatedir
+
+    run_git('init', initstr, cwd=remote)
     run_git('commit', '--allow-empty', '-minit', cwd=remote)
     run_git('branch', 'stable', cwd=remote)
     run_git('tag', 'v1.0', cwd=remote)
@@ -403,8 +488,8 @@ class ResolveRepoRev(GitCheckoutTestCase):
     self.assertEqual('refs/heads/stable', rrev)
     self.assertEqual(self.REV_LIST[1], lrev)
 
-    rrev, lrev = self.wrapper.resolve_repo_rev(self.GIT_DIR, 'master')
-    self.assertEqual('refs/heads/master', rrev)
+    rrev, lrev = self.wrapper.resolve_repo_rev(self.GIT_DIR, 'main')
+    self.assertEqual('refs/heads/main', rrev)
     self.assertEqual(self.REV_LIST[0], lrev)
 
   def test_tag_name(self):
