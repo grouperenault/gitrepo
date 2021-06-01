@@ -1,3 +1,5 @@
+# This **not** the official git-repo. See [details](#markdown-header-about-pypi-version)
+
 # repo
 
 Repo is a tool built on top of Git.  Repo helps manage many Git repositories,

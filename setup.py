@@ -55,8 +55,8 @@ setup(
       'Operating System :: POSIX :: Linux',
       'Topic :: Software Development :: Version Control :: Git',
   ],
-  # We support Python 2.7 and Python 3.6+.
-  python_requires='>=2.7, ' + ', '.join('!=3.%i.*' % x for x in range(0, 6)),
+  # We support Python 3.6+.
+  python_requires=', '.join('!=3.%i.*' % x for x in range(0, 6)),
   entry_points={
     'console_scripts': [
       'repo = repo.main:main',
