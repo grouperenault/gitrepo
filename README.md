@@ -1,4 +1,4 @@
-# This **not** the official git-repo. See [details](#markdown-header-about-pypi-version)
+# This **not** the official git-repo. See [details](#about-pypi-version)
 
 # repo
 
