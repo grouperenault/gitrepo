@@ -26,8 +26,8 @@ import hashlib
 import os
 import sys
 
-from git_command import GitCommand
-from git_refs import R_HEADS
+from repo.git_command import GitCommand
+from repo.git_refs import R_HEADS
 
 _SUPERPROJECT_GIT_NAME = 'superproject.git'
 _SUPERPROJECT_MANIFEST_NAME = 'superproject_override.xml'

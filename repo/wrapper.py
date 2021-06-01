@@ -608,6 +608,9 @@ def _Init(args, gitc_init=False):
       sys.exit(1)
 
   _CheckGitVersion()
+
+
+def clone_repo(opt, url): # unusued for pypi version
   try:
     if not opt.quiet:
       print('Downloading Repo source from', url)

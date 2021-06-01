@@ -25,6 +25,7 @@ import socket
 import sys
 import tempfile
 import time
+import threading
 
 import http.cookiejar as cookielib
 import urllib.error
@@ -631,7 +632,7 @@ later is required to fix a server side protocol bug.
     config = {'pack.threads': cpu_count // jobs if cpu_count > jobs else 1}
 
     threads = set()
-    sem = _threading.Semaphore(jobs)
+    sem = threading.Semaphore(jobs)
 
     def GC(bare_git):
       pm.start(bare_git._project.name)
@@ -651,7 +652,7 @@ later is required to fix a server side protocol bug.
       if err_event.is_set() and opt.fail_fast:
         break
       sem.acquire()
-      t = _threading.Thread(target=GC, args=(bare_git,))
+      t = threading.Thread(target=GC, args=(bare_git,))
       t.daemon = True
       threads.add(t)
       t.start()

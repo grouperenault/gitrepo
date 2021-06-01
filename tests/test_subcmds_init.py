@@ -16,7 +16,7 @@
 
 import unittest
 
-from subcmds import init
+from repo.subcmds import init
 
 
 class InitCommand(unittest.TestCase):

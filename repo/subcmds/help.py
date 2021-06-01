@@ -20,8 +20,6 @@ from repo.color import Coloring
 from repo.command import PagedCommand, MirrorSafeCommand, GitcAvailableCommand, GitcClientCommand
 from repo import gitc_utils
 from repo.subcmds import all_commands
-from subcmds import all_commands
-
 
 from repo.wrapper import Wrapper
 

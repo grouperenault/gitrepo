@@ -3308,7 +3308,7 @@ class RepoSetupPyProject:
   """
 
   def __init__(self):
-    self.remote = RemoteSpec('gitrepo', url='setup.py')
+    self.remote = RemoteSpec('gitrepo', url='setup.py', revision="refs/heads/pypi")
     self.bare_git = _FakeBareGit()
     self.config = GitConfig.ForUser()
 
@@ -3330,4 +3330,10 @@ class RepoSetupPyProject:
     return "pypi"
 
   def GetBranch(self, name):
-    return self.config.GetBranch(name)
+    b = self.config.GetBranch(name)
+    b.merge = "refs/heads/pypi"
+    return b
+
+  @property
+  def LastFetch(self):
+    return time.time()

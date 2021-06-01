@@ -31,8 +31,6 @@ from repo.trace import Trace
 from http.client import HTTPException
 
 from repo.git_command import GitCommand
-from repo.git_command import ssh_sock
-from repo.git_command import terminate_ssh_clients
 from repo.git_refs import R_CHANGES, R_HEADS, R_TAGS
 import urllib.error
 import urllib.request

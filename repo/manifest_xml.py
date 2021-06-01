@@ -30,7 +30,7 @@ from repo.project import RemoteSpec, Project, MetaProject, RepoSetupPyProject
 from repo.error import ManifestParseError, ManifestInvalidPathError, ManifestInvalidRevisionError
 import urllib.parse
 
-from wrapper import Wrapper
+from repo.wrapper import Wrapper
 
 MANIFEST_FILE_NAME = 'manifest.xml'
 LOCAL_MANIFEST_NAME = 'local_manifest.xml'

@@ -23,7 +23,7 @@ from repo.editor import Editor
 from repo.error import UploadError
 from repo.git_command import GitCommand
 from repo.git_refs import R_HEADS
-from repo.project import RepoHook
+from repo.hooks import RepoHook
 
 UNUSUAL_COMMIT_THRESHOLD = 5
 

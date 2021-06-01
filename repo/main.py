@@ -54,7 +54,7 @@ from repo.error import ManifestParseError
 from repo.error import NoManifestException
 from repo.error import NoSuchProjectError
 from repo.error import RepoChangedException
-from repo.event_log import EventLog
+from repo.git_trace2_event_log import EventLog
 from repo import gitc_utils
 from repo.manifest_xml import GitcClient, RepoClient
 from repo.pager import RunPager, TerminatePager
