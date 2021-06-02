@@ -36,10 +36,7 @@ from repo.error import ManifestInvalidRevisionError, ManifestInvalidPathError
 from repo.error import NoManifestException
 from repo import platform_utils
 from repo import progress
-<<<<<<< HEAD
-=======
 from repo.trace import IsTrace, Trace
->>>>>>> tardyp/setuppy
 
 from repo.git_refs import GitRefs, HEAD, R_HEADS, R_TAGS, R_PUB, R_M, R_WORKTREE_M
 
