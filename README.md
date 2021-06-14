@@ -18,6 +18,10 @@ We intend to find some time to upstream the import part as the patch is quite in
 
 This version is used in a large installation and backup by automated internal tests that we cannot really share yet (as dependent on our infra)
 
+## Generate wheel
+
+python setup.py bdist_wheel
+
 ## Installation
 
 ```
