@@ -3304,6 +3304,9 @@ class _FakeBareGit:
       version = "dev"
     return version
 
+  def log(self, *_):
+    return "N/A"
+
 class RepoSetupPyProject:
   """A Fake Project to let subcommands believe we downloaded repo from git at some point
   """

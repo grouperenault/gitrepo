@@ -63,4 +63,5 @@ class Version(Command, MirrorSafeCommand):
       print('OS %s %s (%s)' % (uname.system, uname.release, uname.version))
       print('CPU %s (%s)' %
             (uname.machine, uname.processor if uname.processor else 'unknown'))
-    print('Bug reports:', Wrapper().BUG_URL)
+    print('Pypi related Bug reports:', "https://github.com/grouperenault/gitrepo/issues")
+    print('General Bug reports:', Wrapper().BUG_URL)
