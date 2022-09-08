@@ -23,7 +23,7 @@ from repo import wrapper
 
 
 class GitcInit(init.Init, GitcAvailableCommand):
-  common = True
+  COMMON = True
   helpSummary = "Initialize a GITC Client."
   helpUsage = """
 %prog [options] [client name]

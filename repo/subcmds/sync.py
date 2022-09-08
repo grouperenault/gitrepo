@@ -68,7 +68,7 @@ _ONE_DAY_S = 24 * 60 * 60
 
 class Sync(Command, MirrorSafeCommand):
   jobs = 1
-  common = True
+  COMMON = True
   helpSummary = "Update working tree to the latest revision"
   helpUsage = """
 %prog [<project>...]
@@ -304,21 +304,25 @@ later is required to fix a server side protocol bug.
       load_local_manifests: Whether to load local manifests.
 
     Returns:
-      Returns path to the overriding manifest file.
+      Returns path to the overriding manifest file instead of None.
     """
     superproject = git_superproject.Superproject(self.manifest,
                                                  self.repodir,
+                                                 self.git_event_log,
                                                  quiet=opt.quiet)
     all_projects = self.GetProjects(args,
                                     missing_ok=True,
                                     submodules_ok=opt.fetch_submodules)
-    manifest_path = superproject.UpdateProjectsRevisionId(all_projects)
-    if not manifest_path:
+    update_result = superproject.UpdateProjectsRevisionId(all_projects)
+    manifest_path = update_result.manifest_path
+    if manifest_path:
+      self._ReloadManifest(manifest_path, load_local_manifests)
+    else:
       print('error: Update of revsionId from superproject has failed. '
             'Please resync with --no-use-superproject option',
             file=sys.stderr)
-      sys.exit(1)
-    self._ReloadManifest(manifest_path, load_local_manifests)
+      if update_result.fatal:
+        sys.exit(1)
     return manifest_path
 
   def _FetchProjectList(self, opt, projects):
@@ -963,7 +967,9 @@ later is required to fix a server side protocol bug.
 
     load_local_manifests = not self.manifest.HasLocalManifests
     if self._UseSuperproject(opt):
-      manifest_name = self._UpdateProjectsRevisionId(opt, args, load_local_manifests)
+      new_manifest_name = self._UpdateProjectsRevisionId(opt, args, load_local_manifests)
+      if not new_manifest_name:
+        manifest_name = new_manifest_name
 
     if self.gitc_manifest:
       gitc_manifest_projects = self.GetProjects(args,

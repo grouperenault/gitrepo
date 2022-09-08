@@ -19,7 +19,7 @@ import optparse
 
 
 class Overview(PagedCommand):
-  common = True
+  COMMON = True
   helpSummary = "Display overview of unmerged project branches"
   helpUsage = """
 %prog [--current-branch] [<project>...]

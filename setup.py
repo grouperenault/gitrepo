@@ -22,7 +22,7 @@ with open("README.md", "r") as fh:
 
 setup(
   name="gitrepo",
-  version="2.15.4.post1",
+  version="2.16",
   packages=find_packages(),
 
   package_data={
@@ -56,7 +56,7 @@ setup(
       'Topic :: Software Development :: Version Control :: Git',
   ],
   # We support Python 3.6+.
-  python_requires=', '.join('!=3.%i.*' % x for x in range(0, 6)),
+  python_requires='>=3.6',
   entry_points={
     'console_scripts': [
       'repo = repo.main:main',

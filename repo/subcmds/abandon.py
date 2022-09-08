@@ -22,7 +22,7 @@ from repo.progress import Progress
 
 
 class Abandon(Command):
-  common = True
+  COMMON = True
   helpSummary = "Permanently abandon a development branch"
   helpUsage = """
 %prog [--all | <branchname>] [<project>...]

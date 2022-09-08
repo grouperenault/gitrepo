@@ -18,7 +18,7 @@ from repo.command import Command, MirrorSafeCommand
 
 
 class List(Command, MirrorSafeCommand):
-  common = True
+  COMMON = True
   helpSummary = "List projects and their associated directories"
   helpUsage = """
 %prog [-f] [<project>...]
