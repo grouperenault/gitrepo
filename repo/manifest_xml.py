@@ -36,6 +36,9 @@ MANIFEST_FILE_NAME = 'manifest.xml'
 LOCAL_MANIFEST_NAME = 'local_manifest.xml'
 LOCAL_MANIFESTS_DIR_NAME = 'local_manifests'
 
+# Add all projects from local manifest into a group.
+LOCAL_MANIFEST_GROUP_PREFIX = 'local:'
+
 # ContactInfo has the self-registered bug url, supplied by the manifest authors.
 ContactInfo = collections.namedtuple('ContactInfo', 'bugurl')
 
@@ -121,9 +124,13 @@ class _Default(object):
   sync_tags = True
 
   def __eq__(self, other):
+    if not isinstance(other, _Default):
+      return False
     return self.__dict__ == other.__dict__
 
   def __ne__(self, other):
+    if not isinstance(other, _Default):
+      return True
     return self.__dict__ != other.__dict__
 
 
@@ -146,12 +153,18 @@ class _XmlRemote(object):
     self.resolvedFetchUrl = self._resolveFetchUrl()
 
   def __eq__(self, other):
+    if not isinstance(other, _XmlRemote):
+      return False
     return self.__dict__ == other.__dict__
 
   def __ne__(self, other):
+    if not isinstance(other, _XmlRemote):
+      return True
     return self.__dict__ != other.__dict__
 
   def _resolveFetchUrl(self):
+    if self.fetchUrl is None:
+      return ''
     url = self.fetchUrl.rstrip('/')
     manifestUrl = self.manifestUrl.rstrip('/')
     # urljoin will gets confused over quite a few things.  The ones we care
@@ -679,7 +692,9 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
               # Since local manifests are entirely managed by the user, allow
               # them to point anywhere the user wants.
               nodes.append(self._ParseManifestXml(
-                  local, self.repodir, restrict_includes=False))
+                  local, self.repodir,
+                  parent_groups=f'{LOCAL_MANIFEST_GROUP_PREFIX}:{local_file[:-4]}',
+                  restrict_includes=False))
         except OSError:
           pass
 
@@ -776,9 +791,10 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
     for node in itertools.chain(*node_list):
       if node.nodeName == 'default':
         new_default = self._ParseDefault(node)
+        emptyDefault = not node.hasAttributes() and not node.hasChildNodes()
         if self._default is None:
           self._default = new_default
-        elif new_default != self._default:
+        elif not emptyDefault and new_default != self._default:
           raise ManifestParseError('duplicate default in %s' %
                                    (self.manifestFile))
 

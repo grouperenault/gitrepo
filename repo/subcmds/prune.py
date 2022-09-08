@@ -18,7 +18,7 @@ import itertools
 
 
 class Prune(PagedCommand):
-  common = True
+  COMMON = True
   helpSummary = "Prune (delete) already merged topics"
   helpUsage = """
 %prog [<project>...]
