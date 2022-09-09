@@ -17,7 +17,7 @@
 import optparse
 import unittest
 
-import subcmds
+from repo import subcmds
 
 
 class AllCommands(unittest.TestCase):
