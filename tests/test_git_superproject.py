@@ -21,10 +21,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-import git_superproject
-import git_trace2_event_log
-import manifest_xml
-import platform_utils
+from repo import git_superproject
+from repo import git_trace2_event_log
+from repo import manifest_xml
+from repo import platform_utils
 from test_manifest_xml import sort_attributes
 
 

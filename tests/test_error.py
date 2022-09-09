@@ -18,7 +18,7 @@ import inspect
 import pickle
 import unittest
 
-import error
+from repo import error
 
 
 class PickleTests(unittest.TestCase):

@@ -19,7 +19,7 @@ import subprocess
 import unittest
 from unittest import mock
 
-import ssh
+from repo import ssh
 
 
 class SshTests(unittest.TestCase):
@@ -38,7 +38,7 @@ class SshTests(unittest.TestCase):
 
   def test_version(self):
     """Check version() handling."""
-    with mock.patch('ssh._run_ssh_version', return_value='OpenSSH_1.2\n'):
+    with mock.patch('repo.ssh._run_ssh_version', return_value='OpenSSH_1.2\n'):
       self.assertEqual(ssh.version(), (1, 2))
 
   def test_context_manager_empty(self):
@@ -65,10 +65,10 @@ class SshTests(unittest.TestCase):
     proxy = ssh.ProxyManager(manager)
     with mock.patch('tempfile.mkdtemp', return_value='/tmp/foo'):
       # old ssh version uses port
-      with mock.patch('ssh.version', return_value=(6, 6)):
+      with mock.patch('repo.ssh.version', return_value=(6, 6)):
         self.assertTrue(proxy.sock().endswith('%p'))
 
       proxy._sock_path = None
       # new ssh version uses hash
-      with mock.patch('ssh.version', return_value=(6, 7)):
+      with mock.patch('repo.ssh.version', return_value=(6, 7)):
         self.assertTrue(proxy.sock().endswith('%C'))

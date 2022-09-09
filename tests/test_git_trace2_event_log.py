@@ -20,7 +20,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import git_trace2_event_log
+from repo import git_trace2_event_log
 
 
 class EventLogTestCase(unittest.TestCase):
