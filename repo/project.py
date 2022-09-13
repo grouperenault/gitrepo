@@ -254,12 +254,28 @@ class DiffColoring(Coloring):
     self.fail = self.printer('fail', fg='red')
 
 
-class _Annotation(object):
+class Annotation(object):
 
   def __init__(self, name, value, keep):
     self.name = name
     self.value = value
     self.keep = keep
+
+  def __eq__(self, other):
+    if not isinstance(other, Annotation):
+      return False
+    return self.__dict__ == other.__dict__
+
+  def __lt__(self, other):
+    # This exists just so that lists of Annotation objects can be sorted, for
+    # use in comparisons.
+    if not isinstance(other, Annotation):
+      raise ValueError('comparison is not between two Annotation objects')
+    if self.name == other.name:
+      if self.value == other.value:
+        return self.keep < other.keep
+      return self.value < other.value
+    return self.name < other.name
 
 
 def _SafeExpandPath(base, subpath, skipfinal=False):
@@ -1219,7 +1235,7 @@ class Project(object):
                                          (self.revisionExpr, self.name))
 
   def SetRevisionId(self, revisionId):
-    if self.clone_depth or self.manifest.manifestProject.config.GetString('repo.depth'):
+    if self.revisionExpr:
       self.upstream = self.revisionExpr
 
     self.revisionId = revisionId
@@ -1451,7 +1467,7 @@ class Project(object):
     self.linkfiles.append(_LinkFile(self.worktree, src, topdir, dest))
 
   def AddAnnotation(self, name, value, keep):
-    self.annotations.append(_Annotation(name, value, keep))
+    self.annotations.append(Annotation(name, value, keep))
 
   def DownloadPatchSet(self, change_id, patch_id):
     """Download a single patch set of a single change to FETCH_HEAD.
@@ -1970,6 +1986,11 @@ class Project(object):
       # throws an error.
       self.bare_git.rev_list('-1', '--missing=allow-any',
                              '%s^0' % self.revisionExpr, '--')
+      if self.upstream:
+        rev = self.GetRemote(self.remote.name).ToLocal(self.upstream)
+        self.bare_git.rev_list('-1', '--missing=allow-any',
+                               '%s^0' % rev, '--')
+        self.bare_git.merge_base('--is-ancestor', self.revisionExpr, rev)
       return True
     except GitError:
       # There is no such persistent revision. We have to fetch it.

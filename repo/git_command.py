@@ -70,13 +70,19 @@ def RepoSourceVersion():
   # We avoid GitCommand so we don't run into circular deps -- GitCommand needs
   # to initialize version info we provide.
   if ver is None:
-    # find the version using setup tools
-    import pkg_resources  # part of setuptools
-    try:
-      ver = pkg_resources.require("google-repo")[0].version
-    except pkg_resources.DistributionNotFound:
-      ver = "dev"
+    env = GitCommand._GetBasicEnv()
 
+    proj = os.path.dirname(os.path.abspath(__file__))
+    env[GIT_DIR] = os.path.join(proj, '.git')
+    result = subprocess.run([GIT, 'describe', HEAD], stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, encoding='utf-8',
+                            env=env, check=False)
+    if result.returncode == 0:
+      ver = result.stdout.strip()
+      if ver.startswith('v'):
+        ver = ver[1:]
+    else:
+      ver = 'unknown'
     setattr(RepoSourceVersion, 'version', ver)
 
   return ver
