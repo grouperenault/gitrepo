@@ -22,7 +22,7 @@ with open("README.md", "r") as fh:
 
 setup(
   name="gitrepo",
-  version="2.16",
+  version="2.16.7",
   packages=find_packages(),
 
   package_data={
