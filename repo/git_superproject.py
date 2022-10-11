@@ -98,8 +98,11 @@ class Superproject(object):
                                        _SUPERPROJECT_MANIFEST_NAME)
     git_name = ''
     if self._manifest.superproject:
-      remote_name = self._manifest.superproject['remote'].name
-      git_name = hashlib.md5(remote_name.encode('utf8')).hexdigest() + '-'
+      remote = self._manifest.superproject['remote']
+      git_name = hashlib.md5(remote.name.encode('utf8')).hexdigest() + '-'
+      self._remote_url = remote.url
+    else:
+      self._remote_url = None
     self._work_git_name = git_name + _SUPERPROJECT_GIT_NAME
     self._work_git = os.path.join(self._superproject_path, self._work_git_name)
 
@@ -130,13 +133,17 @@ class Superproject(object):
       print(message, file=sys.stderr)
     self._git_event_log.ErrorEvent(message, f'{message}')
 
+  def _LogMessagePrefix(self):
+    """Returns the prefix string to be logged in each log message"""
+    return f'repo superproject branch: {self._branch} url: {self._remote_url}'
+
   def _LogError(self, message):
     """Logs error message to stderr and _git_event_log."""
-    self._LogMessage(f'repo superproject error: {message}')
+    self._LogMessage(f'{self._LogMessagePrefix()} error: {message}')
 
   def _LogWarning(self, message):
     """Logs warning message to stderr and _git_event_log."""
-    self._LogMessage(f'repo superproject warning: {message}')
+    self._LogMessage(f'{self._LogMessagePrefix()} warning: {message}')
 
   def _Init(self):
     """Sets up a local Git repository to get a copy of a superproject.
@@ -162,11 +169,8 @@ class Superproject(object):
       return False
     return True
 
-  def _Fetch(self, url):
-    """Fetches a local copy of a superproject for the manifest based on url.
-
-    Args:
-      url: superproject's url.
+  def _Fetch(self):
+    """Fetches a local copy of a superproject for the manifest based on |_remote_url|.
 
     Returns:
       True if fetch is successful, or False.
@@ -177,7 +181,8 @@ class Superproject(object):
     if not git_require((2, 28, 0)):
       self._LogWarning('superproject requires a git version 2.28 or later')
       return False
-    cmd = ['fetch', url, '--depth', '1', '--force', '--no-tags', '--filter', 'blob:none']
+    cmd = ['fetch', self._remote_url, '--depth', '1', '--force', '--no-tags',
+           '--filter', 'blob:none']
     if self._branch:
       cmd += [self._branch + ':' + self._branch]
     p = GitCommand(None,
@@ -234,15 +239,14 @@ class Superproject(object):
     print('NOTICE: --use-superproject is in beta; report any issues to the '
           'address described in `repo version`', file=sys.stderr)
     should_exit = True
-    url = self._manifest.superproject['remote'].url
-    if not url:
+    if not self._remote_url:
       self._LogWarning(f'superproject URL is not defined in manifest: '
                        f'{self._manifest.manifestFile}')
       return SyncResult(False, should_exit)
 
     if not self._Init():
       return SyncResult(False, should_exit)
-    if not self._Fetch(url):
+    if not self._Fetch():
       return SyncResult(False, should_exit)
     if not self._quiet:
       print('%s: Initial setup for superproject completed.' % self._work_git)
@@ -260,7 +264,7 @@ class Superproject(object):
 
     data = self._LsTree()
     if not data:
-      self._LogWarning(f'warning: git ls-tree failed to return data for manifest: '
+      self._LogWarning(f'git ls-tree failed to return data for manifest: '
                        f'{self._manifest.manifestFile}')
       return CommitIdsResult(None, True)
 
@@ -366,7 +370,7 @@ def _UseSuperprojectFromConfiguration():
   user_value = user_cfg.GetBoolean('repo.superprojectChoice')
   if user_value is not None:
     user_expiration = user_cfg.GetInt('repo.superprojectChoiceExpire')
-    if user_expiration is not None and (user_expiration <= 0 or user_expiration >= time_now):
+    if user_expiration is None or user_expiration <= 0 or user_expiration >= time_now:
       # TODO(b/190688390) - Remove prompt when we are comfortable with the new
       # default value.
       if user_value:
@@ -384,44 +388,18 @@ def _UseSuperprojectFromConfiguration():
   system_value = system_cfg.GetBoolean('repo.superprojectChoice')
   if system_value:
     # The system configuration is proposing that we should enable the
-    # use of superproject. Present this to user for confirmation if we
-    # are on a TTY, or, when we are not on a TTY, accept the system
-    # default for this time only.
+    # use of superproject. Treat the user as enrolled for two weeks.
     #
     # TODO(b/190688390) - Remove prompt when we are comfortable with the new
     # default value.
-    prompt = ('Repo can now use Git submodules (go/android-submodules-quickstart) '
-              'instead of manifests to represent the state of the Android '
-              'superproject, which results in faster syncs and better atomicity.\n\n')
-    if sys.stdout.isatty():
-      prompt += 'Would you like to opt in for two weeks (y/N)? '
-      response = input(prompt).lower()
-      time_choiceexpire = time_now + (86400 * 14)
-      if response in ('y', 'yes'):
-        userchoice = True
-      elif response in ('a', 'always'):
-        userchoice = True
-        time_choiceexpire = 0
-      elif response == 'never':
-        userchoice = False
-        time_choiceexpire = 0
-      elif response in ('n', 'no'):
-        userchoice = False
-      else:
-        # Unrecognized user response, assume the intention was no, but
-        # only for 2 hours instead of 2 weeks to balance between not
-        # being overly pushy while still retain the opportunity to
-        # enroll.
-        userchoice = False
-        time_choiceexpire = time_now + 7200
-
-      user_cfg.SetString('repo.superprojectChoiceExpire', str(time_choiceexpire))
-      user_cfg.SetBoolean('repo.superprojectChoice', userchoice)
-
-      return userchoice
-    else:
-      print('Accepting once since we are not on a TTY', file=sys.stderr)
-      return True
+    userchoice = True
+    time_choiceexpire = time_now + (86400 * 14)
+    user_cfg.SetString('repo.superprojectChoiceExpire', str(time_choiceexpire))
+    user_cfg.SetBoolean('repo.superprojectChoice', userchoice)
+    print('You are automatically enrolled in Git submodules experiment '
+          '(go/android-submodules-quickstart) for another two weeks.\n',
+          file=sys.stderr)
+    return True
 
   # For all other cases, we would not use superproject by default.
   return False
