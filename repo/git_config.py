@@ -110,6 +110,10 @@ class GitConfig(object):
           os.path.dirname(self.file),
           '.repo_' + os.path.basename(self.file) + '.json')
 
+  def ClearCache(self):
+    """Clear the in-memory cache of config."""
+    self._cache_dict = None
+
   def Has(self, name, include_defaults=True):
     """Return true if this configuration file has the key.
     """
@@ -354,8 +358,8 @@ class GitConfig(object):
       Trace(': parsing %s', self.file)
       with open(self._json) as fd:
         return json.load(fd)
-    except (IOError, ValueError):
-      platform_utils.remove(self._json)
+    except (IOError, ValueErrorl):
+      platform_utils.remove(self._json, missing_ok=True)
       return None
 
   def _SaveJson(self, cache):
@@ -363,8 +367,7 @@ class GitConfig(object):
       with open(self._json, 'w') as fd:
         json.dump(cache, fd, indent=2)
     except (IOError, TypeError):
-      if os.path.exists(self._json):
-        platform_utils.remove(self._json)
+      platform_utils.remove(self._json, missing_ok=True)
 
   def _ReadGit(self):
     """
@@ -374,9 +377,10 @@ class GitConfig(object):
 
     """
     c = {}
-    d = self._do('--null', '--list')
-    if d is None:
+    if not os.path.exists(self.file):
       return c
+
+    d = self._do('--null', '--list')
     for line in d.rstrip('\0').split('\0'):
       if '\n' in line:
         key, val = line.split('\n', 1)
@@ -408,7 +412,7 @@ class GitConfig(object):
         ret = ret.decode('utf-8')
       return ret
     else:
-      GitError('git config %s: %s' % (str(args), p.stderr))
+      raise GitError('git config %s: %s' % (str(args), p.stderr))
 
 
 class RepoConfig(GitConfig):
