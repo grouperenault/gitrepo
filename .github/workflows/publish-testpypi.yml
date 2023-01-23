@@ -9,10 +9,10 @@ jobs:
     environment: testpypi
     steps:
     - uses: actions/checkout@master
-    - name: Set up Python 3.6
+    - name: Set up Python 3.9
       uses: actions/setup-python@v3
       with:
-        python-version: "3.6"
+        python-version: "3.9"
     - name: Install pypa/build
       run: >-
         python -m
