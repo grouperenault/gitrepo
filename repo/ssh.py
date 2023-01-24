@@ -53,9 +53,8 @@ def version():
   try:
     return _parse_ssh_version()
   except FileNotFoundError:
-    print('warning: no ssh installed')
-    # don't crash if ssh is not present in the system, and the manifest is not using ssh urls
-    return (8,2)  # assume recent version
+    print('fatal: ssh not installed', file=sys.stderr)
+    sys.exit(1)
   except subprocess.CalledProcessError:
     print('warning: unable to detect ssh version', file=sys.stderr)
     # don't crash if ssh is not present in the system, and the manifest is not using ssh urls

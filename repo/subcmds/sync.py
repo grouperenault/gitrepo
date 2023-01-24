@@ -607,7 +607,7 @@ later is required to fix a server side protocol bug.
     pm = Progress('Garbage collecting', len(projects), delay=False, quiet=opt.quiet)
     pm.update(inc=0, msg='prescan')
 
-    gc_gitdirs = {}
+    tidy_dirs = {}
     for project in projects:
       # Make sure pruning never kicks in with shared projects.
       if (not project.use_git_worktrees and
@@ -624,17 +624,29 @@ later is required to fix a server side protocol bug.
                 % (project.relpath,),
                 file=sys.stderr)
           project.config.SetString('gc.pruneExpire', 'never')
-      gc_gitdirs[project.gitdir] = project.bare_git
-
-    pm.update(inc=len(projects) - len(gc_gitdirs), msg='warming up')
+      project.config.SetString('gc.autoDetach', 'false')
+      # Only call git gc once per objdir, but call pack-refs for the remainder.
+      if project.objdir not in tidy_dirs:
+        tidy_dirs[project.objdir] = (
+            True,  # Run a full gc.
+            project.bare_git,
+        )
+      elif project.gitdir not in tidy_dirs:
+        tidy_dirs[project.gitdir] = (
+            False,  # Do not run a full gc; just run pack-refs.
+            project.bare_git,
+        )
 
     cpu_count = os.cpu_count()
     jobs = min(self.jobs, cpu_count)
 
     if jobs < 2:
-      for bare_git in gc_gitdirs.values():
+      for (run_gc, bare_git) in tidy_dirs.values():
         pm.update(msg=bare_git._project.name)
-        bare_git.gc('--auto')
+        if run_gc:
+          bare_git.gc('--auto')
+        else:
+          bare_git.pack_refs()
       pm.end()
       return
 
@@ -643,11 +655,14 @@ later is required to fix a server side protocol bug.
     threads = set()
     sem = threading.Semaphore(jobs)
 
-    def GC(bare_git):
+    def tidy_up(run_gc, bare_git):
       pm.start(bare_git._project.name)
       try:
         try:
-          bare_git.gc('--auto', config=config)
+          if run_gc:
+            bare_git.gc('--auto', config=config)
+          else:
+            bare_git.pack_refs(config=config)
         except GitError:
           err_event.set()
         except Exception:
@@ -657,11 +672,11 @@ later is required to fix a server side protocol bug.
         pm.finish(bare_git._project.name)
         sem.release()
 
-    for bare_git in gc_gitdirs.values():
+    for (run_gc, bare_git) in tidy_dirs.values():
       if err_event.is_set() and opt.fail_fast:
         break
       sem.acquire()
-      t = threading.Thread(target=GC, args=(bare_git,))
+      t = threading.Thread(target=tidy_up, args=(run_gc, bare_git,))
       t.daemon = True
       threads.add(t)
       t.start()
@@ -956,14 +971,16 @@ later is required to fix a server side protocol bug.
               file=sys.stderr)
 
     mp = self.manifest.manifestProject
-    mp.PreSync()
+    is_standalone_manifest = mp.config.GetString('manifest.standalone')
+    if not is_standalone_manifest:
+      mp.PreSync()
 
     if opt.repo_upgraded:
       _PostRepoUpgrade(self.manifest, quiet=opt.quiet)
 
     if not opt.mp_update:
       print('Skipping update of local manifest project.')
-    else:
+    elif not is_standalone_manifest:
       self._UpdateManifestProject(opt, mp, manifest_name)
 
     load_local_manifests = not self.manifest.HasLocalManifests
