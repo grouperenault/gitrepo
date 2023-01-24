@@ -54,7 +54,7 @@ Displays detailed usage information about a command.
     self.PrintAllCommandsBody()
 
   def PrintAllCommandsBody(self):
-    print('The complete list of recognized repo commands are:')
+    print('The complete list of recognized repo commands is:')
     commandNames = list(sorted(all_commands))
     self._PrintCommands(commandNames)
     print("See 'repo help <command>' for more information on a "
