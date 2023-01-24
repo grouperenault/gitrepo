@@ -18,7 +18,7 @@ import os
 import tempfile
 import unittest
 
-import platform_utils
+from repo import platform_utils
 
 
 class RemoveTests(unittest.TestCase):
