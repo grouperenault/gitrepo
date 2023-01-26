@@ -460,11 +460,7 @@ class RemoteSpec(object):
 
 class Project(object):
   # These objects can be shared between several working trees.
-  shareable_files = ['description', 'info']
-  shareable_dirs = ['hooks', 'objects', 'rr-cache', 'svn']
-  # These objects can only be used by a single working tree.
-  working_tree_files = ['config', 'packed-refs', 'shallow']
-  working_tree_dirs = ['logs', 'refs']
+  shareable_dirs = ['hooks', 'objects', 'rr-cache']
 
   def __init__(self,
                manifest,
@@ -2486,10 +2482,9 @@ class Project(object):
           os.makedirs(self.gitdir)
 
         if init_obj_dir or init_git_dir:
-          self._ReferenceGitDir(self.objdir, self.gitdir, share_refs=False,
-                                copy_all=True)
+          self._ReferenceGitDir(self.objdir, self.gitdir, copy_all=True)
         try:
-          self._CheckDirReference(self.objdir, self.gitdir, share_refs=False)
+          self._CheckDirReference(self.objdir, self.gitdir)
         except GitError as e:
           if force_sync:
             print("Retrying clone after deleting %s" %
@@ -2556,6 +2551,11 @@ class Project(object):
     hooks = platform_utils.realpath(os.path.join(self.objdir, 'hooks'))
     if not os.path.exists(hooks):
       os.makedirs(hooks)
+
+    # Delete sample hooks.  They're noise.
+    for hook in glob.glob(os.path.join(hooks, '*.sample')):
+      platform_utils.remove(hook, missing_ok=True)
+
     for stock_hook in _ProjectHooks():
       name = os.path.basename(stock_hook)
 
@@ -2653,39 +2653,15 @@ class Project(object):
         else:
           active_git.symbolic_ref('-m', msg, ref, dst)
 
-  def _CheckDirReference(self, srcdir, destdir, share_refs):
+  def _CheckDirReference(self, srcdir, destdir):
     # Git worktrees don't use symlinks to share at all.
     if self.use_git_worktrees:
       return
 
-    symlink_files = self.shareable_files[:]
-    symlink_dirs = self.shareable_dirs[:]
-    if share_refs:
-      symlink_files += self.working_tree_files
-      symlink_dirs += self.working_tree_dirs
-    to_symlink = symlink_files + symlink_dirs
-    for name in set(to_symlink):
+    for name in self.shareable_dirs:
       # Try to self-heal a bit in simple cases.
       dst_path = os.path.join(destdir, name)
       src_path = os.path.join(srcdir, name)
-
-      if name in self.working_tree_dirs:
-        # If the dir is missing under .repo/projects/, create it.
-        if not os.path.exists(src_path):
-          os.makedirs(src_path)
-
-      elif name in self.working_tree_files:
-        # If it's a file under the checkout .git/ and the .repo/projects/ has
-        # nothing, move the file under the .repo/projects/ tree.
-        if not os.path.exists(src_path) and os.path.isfile(dst_path):
-          platform_utils.rename(dst_path, src_path)
-
-      # If the path exists under the .repo/projects/ and there's no symlink
-      # under the checkout .git/, recreate the symlink.
-      if name in self.working_tree_dirs or name in self.working_tree_files:
-        if os.path.exists(src_path) and not os.path.exists(dst_path):
-          platform_utils.symlink(
-              os.path.relpath(src_path, os.path.dirname(dst_path)), dst_path)
 
       dst = platform_utils.realpath(dst_path)
       if os.path.lexists(dst):
@@ -2699,23 +2675,17 @@ class Project(object):
                          ' use `repo sync --force-sync {0}` to '
                          'proceed.'.format(self.relpath))
 
-  def _ReferenceGitDir(self, gitdir, dotgit, share_refs, copy_all):
+  def _ReferenceGitDir(self, gitdir, dotgit, copy_all):
     """Update |dotgit| to reference |gitdir|, using symlinks where possible.
 
     Args:
       gitdir: The bare git repository. Must already be initialized.
       dotgit: The repository you would like to initialize.
-      share_refs: If true, |dotgit| will store its refs under |gitdir|.
-          Only one work tree can store refs under a given |gitdir|.
       copy_all: If true, copy all remaining files from |gitdir| -> |dotgit|.
           This saves you the effort of initializing |dotgit| yourself.
     """
-    symlink_files = self.shareable_files[:]
     symlink_dirs = self.shareable_dirs[:]
-    if share_refs:
-      symlink_files += self.working_tree_files
-      symlink_dirs += self.working_tree_dirs
-    to_symlink = symlink_files + symlink_dirs
+    to_symlink = symlink_dirs
 
     to_copy = []
     if copy_all:
@@ -2742,11 +2712,6 @@ class Project(object):
             shutil.copytree(src, dst)
           elif os.path.isfile(src):
             shutil.copy(src, dst)
-
-        # If the source file doesn't exist, ensure the destination
-        # file doesn't either.
-        if name in symlink_files and not os.path.lexists(src):
-          platform_utils.remove(dst, missing_ok=True)
 
       except OSError as e:
         if e.errno == errno.EPERM:
@@ -2784,50 +2749,111 @@ class Project(object):
     self._InitMRef()
 
   def _InitWorkTree(self, force_sync=False, submodules=False):
-    realdotgit = os.path.join(self.worktree, '.git')
-    tmpdotgit = realdotgit + '.tmp'
-    init_dotgit = not os.path.exists(realdotgit)
-    if init_dotgit:
-      if self.use_git_worktrees:
+    """Setup the worktree .git path.
+
+    This is the user-visible path like src/foo/.git/.
+
+    With non-git-worktrees, this will be a symlink to the .repo/projects/ path.
+    With git-worktrees, this will be a .git file using "gitdir: ..." syntax.
+
+    Older checkouts had .git/ directories.  If we see that, migrate it.
+
+    This also handles changes in the manifest.  Maybe this project was backed
+    by "foo/bar" on the server, but now it's "new/foo/bar".  We have to update
+    the path we point to under .repo/projects/ to match.
+    """
+    dotgit = os.path.join(self.worktree, '.git')
+
+    # If using an old layout style (a directory), migrate it.
+    if not platform_utils.islink(dotgit) and platform_utils.isdir(dotgit):
+      self._MigrateOldWorkTreeGitDir(dotgit)
+
+    init_dotgit = not os.path.exists(dotgit)
+    if self.use_git_worktrees:
+      if init_dotgit:
         self._InitGitWorktree()
         self._CopyAndLinkFiles()
-        return
-
-      dotgit = tmpdotgit
-      platform_utils.rmtree(tmpdotgit, ignore_errors=True)
-      os.makedirs(tmpdotgit)
-      self._ReferenceGitDir(self.gitdir, tmpdotgit, share_refs=True,
-                            copy_all=False)
     else:
-      dotgit = realdotgit
+      if not init_dotgit:
+        # See if the project has changed.
+        if platform_utils.realpath(self.gitdir) != platform_utils.realpath(dotgit):
+          platform_utils.remove(dotgit)
 
-    try:
-      self._CheckDirReference(self.gitdir, dotgit, share_refs=True)
-    except GitError as e:
-      if force_sync and not init_dotgit:
-        try:
-          platform_utils.rmtree(dotgit)
-          return self._InitWorkTree(force_sync=False, submodules=submodules)
-        except Exception:
-          raise e
-      raise e
+      if init_dotgit or not os.path.exists(dotgit):
+        os.makedirs(self.worktree, exist_ok=True)
+        platform_utils.symlink(os.path.relpath(self.gitdir, self.worktree), dotgit)
 
-    if init_dotgit:
-      _lwrite(os.path.join(tmpdotgit, HEAD), '%s\n' % self.GetRevisionId())
+      if init_dotgit:
+        _lwrite(os.path.join(dotgit, HEAD), '%s\n' % self.GetRevisionId())
 
-      # Now that the .git dir is fully set up, move it to its final home.
-      platform_utils.rename(tmpdotgit, realdotgit)
+        # Finish checking out the worktree.
+        cmd = ['read-tree', '--reset', '-u', '-v', HEAD]
+        if GitCommand(self, cmd).Wait() != 0:
+          raise GitError('Cannot initialize work tree for ' + self.name)
 
-      # Finish checking out the worktree.
-      cmd = ['read-tree', '--reset', '-u']
-      cmd.append('-v')
-      cmd.append(HEAD)
-      if GitCommand(self, cmd).Wait() != 0:
-        raise GitError('Cannot initialize work tree for ' + self.name)
+        if submodules:
+          self._SyncSubmodules(quiet=True)
+        self._CopyAndLinkFiles()
 
-      if submodules:
-        self._SyncSubmodules(quiet=True)
-      self._CopyAndLinkFiles()
+  @classmethod
+  def _MigrateOldWorkTreeGitDir(cls, dotgit):
+    """Migrate the old worktree .git/ dir style to a symlink.
+
+    This logic specifically only uses state from |dotgit| to figure out where to
+    move content and not |self|.  This way if the backing project also changed
+    places, we only do the .git/ dir to .git symlink migration here.  The path
+    updates will happen independently.
+    """
+    # Figure out where in .repo/projects/ it's pointing to.
+    if not os.path.islink(os.path.join(dotgit, 'refs')):
+      raise GitError(f'{dotgit}: unsupported checkout state')
+    gitdir = os.path.dirname(os.path.realpath(os.path.join(dotgit, 'refs')))
+
+    # Remove known symlink paths that exist in .repo/projects/.
+    KNOWN_LINKS = {
+        'config', 'description', 'hooks', 'info', 'logs', 'objects',
+        'packed-refs', 'refs', 'rr-cache', 'shallow', 'svn',
+    }
+    # Paths that we know will be in both, but are safe to clobber in .repo/projects/.
+    SAFE_TO_CLOBBER = {
+        'COMMIT_EDITMSG', 'FETCH_HEAD', 'HEAD', 'gitk.cache', 'index', 'ORIG_HEAD',
+    }
+
+    # First see if we'd succeed before starting the migration.
+    unknown_paths = []
+    for name in platform_utils.listdir(dotgit):
+      # Ignore all temporary/backup names.  These are common with vim & emacs.
+      if name.endswith('~') or (name[0] == '#' and name[-1] == '#'):
+        continue
+
+      dotgit_path = os.path.join(dotgit, name)
+      if name in KNOWN_LINKS:
+        if not platform_utils.islink(dotgit_path):
+          unknown_paths.append(f'{dotgit_path}: should be a symlink')
+      else:
+        gitdir_path = os.path.join(gitdir, name)
+        if name not in SAFE_TO_CLOBBER and os.path.exists(gitdir_path):
+          unknown_paths.append(f'{dotgit_path}: unknown file; please file a bug')
+    if unknown_paths:
+      raise GitError('Aborting migration: ' + '\n'.join(unknown_paths))
+
+    # Now walk the paths and sync the .git/ to .repo/projects/.
+    for name in platform_utils.listdir(dotgit):
+      dotgit_path = os.path.join(dotgit, name)
+
+      # Ignore all temporary/backup names.  These are common with vim & emacs.
+      if name.endswith('~') or (name[0] == '#' and name[-1] == '#'):
+        platform_utils.remove(dotgit_path)
+      elif name in KNOWN_LINKS:
+        platform_utils.remove(dotgit_path)
+      else:
+        gitdir_path = os.path.join(gitdir, name)
+        platform_utils.remove(gitdir_path, missing_ok=True)
+        platform_utils.rename(dotgit_path, gitdir_path)
+
+    # Now that the dir should be empty, clear it out, and symlink it over.
+    platform_utils.rmdir(dotgit)
+    platform_utils.symlink(os.path.relpath(gitdir, os.path.dirname(dotgit)), dotgit)
 
   def _get_symlink_error_message(self):
     if platform_utils.isWindows():
