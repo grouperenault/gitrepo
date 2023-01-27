@@ -93,7 +93,8 @@ class Superproject(object):
     self._branch = manifest.branch
     self._repodir = os.path.abspath(repodir)
     self._superproject_dir = superproject_dir
-    self._superproject_path = os.path.join(self._repodir, superproject_dir)
+    self._superproject_path = manifest.SubmanifestInfoDir(manifest.path_prefix,
+                                                          superproject_dir)
     self._manifest_path = os.path.join(self._superproject_path,
                                        _SUPERPROJECT_MANIFEST_NAME)
     git_name = ''
@@ -311,7 +312,7 @@ class Superproject(object):
     if project.revisionId:
       return True
     # Skip the project if it comes from the local manifest.
-    return any(s.startswith(LOCAL_MANIFEST_GROUP_PREFIX) for s in project.groups)
+    return project.manifest.IsFromLocalManifest(project)
 
   def UpdateProjectsRevisionId(self, projects):
     """Update revisionId of every project in projects with the commit id.
