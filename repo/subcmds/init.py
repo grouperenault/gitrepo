@@ -32,6 +32,7 @@ from repo import fetch
 
 class Init(InteractiveCommand, MirrorSafeCommand):
   COMMON = True
+  MULTI_MANIFEST_SUPPORT = False
   helpSummary = "Initialize a repo client checkout in the current directory"
   helpUsage = """
 %prog [options] [manifest url]
@@ -90,6 +91,17 @@ to update the working directory files.
 
   def _Options(self, p, gitc_init=False):
     Wrapper().InitParser(p, gitc_init=gitc_init)
+    m = p.add_option_group('Multi-manifest')
+    m.add_option('--outer-manifest', action='store_true',
+                 help='operate starting at the outermost manifest')
+    m.add_option('--no-outer-manifest', dest='outer_manifest',
+                 action='store_false', default=None,
+                 help='do not operate on outer manifests')
+    m.add_option('--this-manifest-only', action='store_true', default=None,
+                 help='only operate on this (sub)manifest')
+    m.add_option('--no-this-manifest-only', '--all-manifests',
+                 dest='this_manifest_only', action='store_false',
+                 help='operate on this manifest and its submanifests')
 
   def _RegisteredEnvironmentOptions(self):
     return {'REPO_MANIFEST_URL': 'manifest_url',
@@ -290,6 +302,15 @@ to update the working directory files.
 
     if opt.submodules:
       m.config.SetBoolean('repo.submodules', opt.submodules)
+
+    if opt.git_lfs is not None:
+      if opt.git_lfs:
+        git_require((2, 17, 0), fail=True, msg='Git LFS support')
+
+      m.config.SetBoolean('repo.git-lfs', opt.git_lfs)
+      if not is_new:
+        print('warning: Changing --git-lfs settings will only affect new project checkouts.\n'
+              '         Existing projects will require manual updates.\n', file=sys.stderr)
 
     if opt.use_superproject is not None:
       m.config.SetBoolean('repo.superproject', opt.use_superproject)
@@ -520,8 +541,12 @@ to update the working directory files.
     # Handle new --repo-rev requests.
     if opt.repo_rev:
       wrapper = Wrapper()
-      remote_ref, rev = wrapper.check_repo_rev(
-          rp.gitdir, opt.repo_rev, repo_verify=opt.repo_verify, quiet=opt.quiet)
+      try:
+        remote_ref, rev = wrapper.check_repo_rev(
+            rp.gitdir, opt.repo_rev, repo_verify=opt.repo_verify, quiet=opt.quiet)
+      except wrapper.CloneFailure:
+        print('fatal: double check your --repo-rev setting.', file=sys.stderr)
+        sys.exit(1)
       branch = rp.GetBranch('default')
       branch.merge = remote_ref
       rp.work_git.reset('--hard', rev)
