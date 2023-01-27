@@ -1123,7 +1123,7 @@ class Project(object):
     self._InitRemote()
 
     if is_new:
-      alt = os.path.join(self.gitdir, 'objects/info/alternates')
+      alt = os.path.join(self.objdir, 'objects/info/alternates')
       try:
         with open(alt) as fd:
           # This works for both absolute and relative alternate directories.
@@ -1172,7 +1172,7 @@ class Project(object):
     mp = self.manifest.manifestProject
     dissociate = mp.config.GetBoolean('repo.dissociate')
     if dissociate:
-      alternates_file = os.path.join(self.gitdir, 'objects/info/alternates')
+      alternates_file = os.path.join(self.objdir, 'objects/info/alternates')
       if os.path.exists(alternates_file):
         cmd = ['repack', '-a', '-d']
         p = GitCommand(self, cmd, bare=True, capture_stdout=bool(output_redir),
@@ -2195,8 +2195,10 @@ class Project(object):
     retry_cur_sleep = retry_sleep_initial_sec
     ok = prune_tried = False
     for try_n in range(retry_fetches):
-      gitcmd = GitCommand(self, cmd, bare=True, ssh_proxy=ssh_proxy,
-                          merge_output=True, capture_stdout=quiet or bool(output_redir))
+      gitcmd = GitCommand(
+          self, cmd, bare=True, objdir=os.path.join(self.objdir, 'objects'),
+          ssh_proxy=ssh_proxy,
+          merge_output=True, capture_stdout=quiet or bool(output_redir))
       if gitcmd.stdout and not quiet and output_redir:
         output_redir.write(gitcmd.stdout)
       ret = gitcmd.Wait()
@@ -2312,7 +2314,8 @@ class Project(object):
       cmd.append(str(f))
     cmd.append('+refs/tags/*:refs/tags/*')
 
-    ok = GitCommand(self, cmd, bare=True).Wait() == 0
+    ok = GitCommand(
+        self, cmd, bare=True, objdir=os.path.join(self.objdir, 'objects')).Wait() == 0
     platform_utils.remove(bundle_dst, missing_ok=True)
     platform_utils.remove(bundle_tmp, missing_ok=True)
     return ok
@@ -2507,8 +2510,8 @@ class Project(object):
         if ref_dir or mirror_git:
           if not mirror_git:
             mirror_git = os.path.join(ref_dir, self.name + '.git')
-          repo_git = os.path.join(ref_dir, '.repo', 'projects',
-                                  self.relpath + '.git')
+          repo_git = os.path.join(ref_dir, '.repo', 'project-objects',
+                                  self.name + '.git')
           worktrees_git = os.path.join(ref_dir, '.repo', 'worktrees',
                                        self.name + '.git')
 
@@ -2526,15 +2529,16 @@ class Project(object):
               # The alternate directory is relative to the object database.
               ref_dir = os.path.relpath(ref_dir,
                                         os.path.join(self.objdir, 'objects'))
-            _lwrite(os.path.join(self.gitdir, 'objects/info/alternates'),
+            _lwrite(os.path.join(self.objdir, 'objects/info/alternates'),
                     os.path.join(ref_dir, 'objects') + '\n')
 
         m = self.manifest.manifestProject.config
         for key in ['user.name', 'user.email']:
           if m.Has(key, include_defaults=False):
             self.config.SetString(key, m.GetString(key))
-        self.config.SetString('filter.lfs.smudge', 'git-lfs smudge --skip -- %f')
-        self.config.SetString('filter.lfs.process', 'git-lfs filter-process --skip')
+        if not self.manifest.EnableGitLfs:
+          self.config.SetString('filter.lfs.smudge', 'git-lfs smudge --skip -- %f')
+          self.config.SetString('filter.lfs.process', 'git-lfs filter-process --skip')
         self.config.SetBoolean('core.bare', True if self.manifest.IsMirror else None)
     except Exception:
       if init_obj_dir and os.path.exists(self.objdir):
@@ -2554,7 +2558,10 @@ class Project(object):
 
     # Delete sample hooks.  They're noise.
     for hook in glob.glob(os.path.join(hooks, '*.sample')):
-      platform_utils.remove(hook, missing_ok=True)
+      try:
+        platform_utils.remove(hook, missing_ok=True)
+      except PermissionError:
+        pass
 
     for stock_hook in _ProjectHooks():
       name = os.path.basename(stock_hook)
@@ -2816,7 +2823,8 @@ class Project(object):
     }
     # Paths that we know will be in both, but are safe to clobber in .repo/projects/.
     SAFE_TO_CLOBBER = {
-        'COMMIT_EDITMSG', 'FETCH_HEAD', 'HEAD', 'gitk.cache', 'index', 'ORIG_HEAD',
+        'COMMIT_EDITMSG', 'FETCH_HEAD', 'HEAD', 'gc.log', 'gitk.cache', 'index',
+        'ORIG_HEAD',
     }
 
     # First see if we'd succeed before starting the migration.
