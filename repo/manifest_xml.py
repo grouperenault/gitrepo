@@ -25,11 +25,12 @@ import urllib.parse
 from repo import gitc_utils
 from repo.git_config import GitConfig, IsId
 from repo.git_refs import R_HEADS, HEAD
+from repo.git_superproject import Superproject
 from repo import platform_utils
-from repo.project import Annotation, RemoteSpec, Project, MetaProject, RepoSetupPyProject
-from repo.error import ManifestParseError, ManifestInvalidPathError, ManifestInvalidRevisionError
-import urllib.parse
-
+from repo.project import (Annotation, RemoteSpec, Project, RepoSetupPyProject,
+                          ManifestProject)
+from repo.error import (ManifestParseError, ManifestInvalidPathError,
+                        ManifestInvalidRevisionError)
 from repo.wrapper import Wrapper
 
 MANIFEST_FILE_NAME = 'manifest.xml'
@@ -38,6 +39,8 @@ LOCAL_MANIFESTS_DIR_NAME = 'local_manifests'
 SUBMANIFEST_DIR = 'submanifests'
 # Limit submanifests to an arbitrary depth for loop detection.
 MAX_SUBMANIFEST_DEPTH = 8
+# Add all projects from sub manifest into a group.
+SUBMANIFEST_GROUP_PREFIX = 'submanifest:'
 
 # Add all projects from local manifest into a group.
 LOCAL_MANIFEST_GROUP_PREFIX = 'local:'
@@ -121,7 +124,7 @@ class _Default(object):
   destBranchExpr = None
   upstreamExpr = None
   remote = None
-  sync_j = 1
+  sync_j = None
   sync_c = False
   sync_s = False
   sync_tags = True
@@ -212,9 +215,11 @@ class _XmlSubmanifest:
     revision: a string, the commitish.
     manifestName: a string, the submanifest file name.
     groups: a list of strings, the groups to add to all projects in the submanifest.
+    default_groups: a list of strings, the default groups to sync.
     path: a string, the relative path for the submanifest checkout.
+    parent: an XmlManifest, the parent manifest.
     annotations: (derived) a list of annotations.
-    present: (derived) a boolean, whether the submanifest's manifest file is present.
+    present: (derived) a boolean, whether the sub manifest file is present.
   """
   def __init__(self,
                name,
@@ -223,6 +228,7 @@ class _XmlSubmanifest:
                revision=None,
                manifestName=None,
                groups=None,
+               default_groups=None,
                path=None,
                parent=None):
     self.name = name
@@ -231,18 +237,27 @@ class _XmlSubmanifest:
     self.revision = revision
     self.manifestName = manifestName
     self.groups = groups
+    self.default_groups = default_groups
     self.path = path
+    self.parent = parent
     self.annotations = []
     outer_client = parent._outer_client or parent
     if self.remote and not self.project:
       raise ManifestParseError(
           f'Submanifest {name}: must specify project when remote is given.')
+    # Construct the absolute path to the manifest file using the parent's
+    # method, so that we can correctly create our repo_client.
+    manifestFile = parent.SubmanifestInfoDir(
+        os.path.join(parent.path_prefix, self.relpath),
+        os.path.join('manifests', manifestName or 'default.xml'))
+    linkFile = parent.SubmanifestInfoDir(
+        os.path.join(parent.path_prefix, self.relpath), MANIFEST_FILE_NAME)
     rc = self.repo_client = RepoClient(
-        parent.repodir, manifestName, parent_groups=','.join(groups) or '',
-        submanifest_path=self.relpath, outer_client=outer_client)
+        parent.repodir, linkFile, parent_groups=','.join(groups) or '',
+        submanifest_path=self.relpath, outer_client=outer_client,
+        default_groups=default_groups)
 
-    self.present = os.path.exists(os.path.join(self.repo_client.subdir,
-                                               MANIFEST_FILE_NAME))
+    self.present = os.path.exists(manifestFile)
 
   def __eq__(self, other):
     if not isinstance(other, _XmlSubmanifest):
@@ -254,26 +269,28 @@ class _XmlSubmanifest:
         self.revision == other.revision and
         self.manifestName == other.manifestName and
         self.groups == other.groups and
+        self.default_groups == other.default_groups and
         self.path == other.path and
         sorted(self.annotations) == sorted(other.annotations))
 
   def __ne__(self, other):
     return not self.__eq__(other)
 
-  def ToSubmanifestSpec(self, root):
+  def ToSubmanifestSpec(self):
     """Return a SubmanifestSpec object, populating attributes"""
-    mp = root.manifestProject
-    remote = root.remotes[self.remote or root.default.remote.name]
+    mp = self.parent.manifestProject
+    remote = self.parent.remotes[self.remote or self.parent.default.remote.name]
     # If a project was given, generate the url from the remote and project.
     # If not, use this manifestProject's url.
     if self.project:
       manifestUrl = remote.ToRemoteSpec(self.project).url
     else:
-      manifestUrl = mp.GetRemote(mp.remote.name).url
+      manifestUrl = mp.GetRemote().url
     manifestName = self.manifestName or 'default.xml'
     revision = self.revision or self.name
     path = self.path or revision.split('/')[-1]
     groups = self.groups or []
+    default_groups = self.default_groups or []
 
     return SubmanifestSpec(self.name, manifestUrl, manifestName, revision, path,
                            groups)
@@ -289,6 +306,10 @@ class _XmlSubmanifest:
     if self.groups:
       return ','.join(self.groups)
     return ''
+
+  def GetDefaultGroupsStr(self):
+    """Returns the `default-groups` given for this submanifest."""
+    return ','.join(self.default_groups or [])
 
   def AddAnnotation(self, name, value, keep):
     """Add annotations to the submanifest."""
@@ -317,7 +338,8 @@ class XmlManifest(object):
   """manages the repo configuration file"""
 
   def __init__(self, repodir, manifest_file, local_manifests=None,
-               outer_client=None, parent_groups='', submanifest_path=''):
+               outer_client=None, parent_groups='', submanifest_path='',
+               default_groups=None):
     """Initialize.
 
     Args:
@@ -327,20 +349,32 @@ class XmlManifest(object):
           be |repodir|/|MANIFEST_FILE_NAME|.
       local_manifests: Full path to the directory of local override manifests.
           This will usually be |repodir|/|LOCAL_MANIFESTS_DIR_NAME|.
-      outer_client: RepoClient of the outertree.
+      outer_client: RepoClient of the outer manifest.
       parent_groups: a string, the groups to apply to this projects.
       submanifest_path: The submanifest root relative to the repo root.
+      default_groups: a string, the default manifest groups to use.
     """
     # TODO(vapier): Move this out of this class.
     self.globalConfig = GitConfig.ForUser()
 
     self.repodir = os.path.abspath(repodir)
     self._CheckLocalPath(submanifest_path)
-    self.topdir = os.path.join(os.path.dirname(self.repodir), submanifest_path)
+    self.topdir = os.path.dirname(self.repodir)
+    if submanifest_path:
+      # This avoids a trailing os.path.sep when submanifest_path is empty.
+      self.topdir = os.path.join(self.topdir, submanifest_path)
+    if manifest_file != os.path.abspath(manifest_file):
+      raise ManifestParseError('manifest_file must be abspath')
     self.manifestFile = manifest_file
+    if not outer_client or outer_client == self:
+      # manifestFileOverrides only exists in the outer_client's manifest, since
+      # that is the only instance left when Unload() is called on the outer
+      # manifest.
+      self.manifestFileOverrides = {}
     self.local_manifests = local_manifests
     self._load_local_manifests = True
     self.parent_groups = parent_groups
+    self.default_groups = default_groups
 
     if outer_client and self.isGitcClient:
       raise ManifestParseError('Multi-manifest is incompatible with `gitc-init`')
@@ -362,10 +396,10 @@ class XmlManifest(object):
     # normal repo settings live in the manifestProject which we just setup
     # above, so we couldn't easily query before that.  We assume Project()
     # init doesn't care if this changes afterwards.
-    if os.path.exists(mp.gitdir) and mp.config.GetBoolean('repo.worktree'):
+    if os.path.exists(mp.gitdir) and mp.use_worktree:
       mp.use_git_worktrees = True
 
-    self._Unload()
+    self.Unload()
 
   def Override(self, name, load_local_manifests=True):
     """Use a different manifest, just for the current instantiation.
@@ -384,14 +418,10 @@ class XmlManifest(object):
       if not os.path.isfile(path):
         raise ManifestParseError('manifest %s not found' % name)
 
-    old = self.manifestFile
-    try:
-      self._load_local_manifests = load_local_manifests
-      self.manifestFile = path
-      self._Unload()
-      self._Load()
-    finally:
-      self.manifestFile = old
+    self._load_local_manifests = load_local_manifests
+    self._outer_client.manifestFileOverrides[self.path_prefix] = path
+    self.Unload()
+    self._Load()
 
   def Link(self, name):
     """Update the repo metadata to use a different manifest.
@@ -457,6 +487,8 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
       e.setAttribute('path', r.path)
     if r.groups:
       e.setAttribute('groups', r.GetGroupsStr())
+    if r.default_groups:
+      e.setAttribute('default-groups', r.GetDefaultGroupsStr())
 
     for a in r.annotations:
       if a.keep == 'true':
@@ -472,12 +504,13 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
     """
     return [x for x in re.split(r'[,\s]+', field) if x]
 
-  def ToXml(self, peg_rev=False, peg_rev_upstream=True, peg_rev_dest_branch=True, groups=None):
+  def ToXml(self, peg_rev=False, peg_rev_upstream=True,
+            peg_rev_dest_branch=True, groups=None, omit_local=False):
     """Return the current manifest XML."""
     mp = self.manifestProject
 
     if groups is None:
-      groups = mp.config.GetString('manifest.groups')
+      groups = mp.manifest_groups
     if groups:
       groups = self._ParseList(groups)
 
@@ -517,7 +550,7 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
     if d.upstreamExpr:
       have_default = True
       e.setAttribute('upstream', d.upstreamExpr)
-    if d.sync_j > 1:
+    if d.sync_j is not None:
       have_default = True
       e.setAttribute('sync-j', '%d' % d.sync_j)
     if d.sync_c:
@@ -551,6 +584,9 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
 
     def output_project(parent, parent_node, p):
       if not p.MatchesGroups(groups):
+        return
+
+      if omit_local and self.IsFromLocalManifest(p):
         return
 
       name = p.name
@@ -659,17 +695,17 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
     if self._superproject:
       root.appendChild(doc.createTextNode(''))
       e = doc.createElement('superproject')
-      e.setAttribute('name', self._superproject['name'])
+      e.setAttribute('name', self._superproject.name)
       remoteName = None
       if d.remote:
         remoteName = d.remote.name
-      remote = self._superproject.get('remote')
+      remote = self._superproject.remote
       if not d.remote or remote.orig_name != remoteName:
         remoteName = remote.orig_name
         e.setAttribute('remote', remoteName)
       revision = remote.revision or d.revisionExpr
-      if not revision or revision != self._superproject['revision']:
-        e.setAttribute('revision', self._superproject['revision'])
+      if not revision or revision != self._superproject.revision:
+        e.setAttribute('revision', self._superproject.revision)
       root.appendChild(e)
 
     if self._contactinfo.bugurl != Wrapper().BUG_URL:
@@ -738,23 +774,29 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
 
   @property
   def is_multimanifest(self):
-    """Whether this is a multimanifest checkout"""
-    return bool(self.outer_client.submanifests)
+    """Whether this is a multimanifest checkout.
+
+    This is safe to use as long as the outermost manifest XML has been parsed.
+    """
+    return bool(self._outer_client._submanifests)
 
   @property
   def is_submanifest(self):
-    """Whether this manifest is a submanifest"""
+    """Whether this manifest is a submanifest.
+
+    This is safe to use as long as the outermost manifest XML has been parsed.
+    """
     return self._outer_client and self._outer_client != self
 
   @property
   def outer_client(self):
-    """The instance of the outermost manifest client"""
+    """The instance of the outermost manifest client."""
     self._Load()
     return self._outer_client
 
   @property
   def all_manifests(self):
-    """Generator yielding all (sub)manifests."""
+    """Generator yielding all (sub)manifests, in depth-first order."""
     self._Load()
     outer = self._outer_client
     yield outer
@@ -763,7 +805,7 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
 
   @property
   def all_children(self):
-    """Generator yielding all child submanifests."""
+    """Generator yielding all (present) child submanifests."""
     self._Load()
     for child in self._submanifests.values():
       if child.repo_client:
@@ -780,7 +822,14 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
 
   @property
   def all_paths(self):
-    """All project paths for all (sub)manifests.  See `paths`."""
+    """All project paths for all (sub)manifests.
+
+    See also `paths`.
+
+    Returns:
+      A dictionary of {path: Project()}.  `path` is relative to the outer
+      manifest.
+    """
     ret = {}
     for tree in self.all_manifests:
       prefix = tree.path_prefix
@@ -796,7 +845,7 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
   def paths(self):
     """Return all paths for this manifest.
 
-    Return:
+    Returns:
       A dictionary of {path: Project()}.  `path` is relative to this manifest.
     """
     self._Load()
@@ -810,11 +859,13 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
 
   @property
   def remotes(self):
+    """Return a list of remotes for this manifest."""
     self._Load()
     return self._remotes
 
   @property
   def default(self):
+    """Return default values for this manifest."""
     self._Load()
     return self._default
 
@@ -851,23 +902,26 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
 
   @property
   def CloneBundle(self):
-    clone_bundle = self.manifestProject.config.GetBoolean('repo.clonebundle')
+    clone_bundle = self.manifestProject.clone_bundle
     if clone_bundle is None:
-      return False if self.manifestProject.config.GetBoolean('repo.partialclone') else True
+      return False if self.manifestProject.partial_clone else True
     else:
       return clone_bundle
 
   @property
   def CloneFilter(self):
-    if self.manifestProject.config.GetBoolean('repo.partialclone'):
-      return self.manifestProject.config.GetString('repo.clonefilter')
+    if self.manifestProject.partial_clone:
+      return self.manifestProject.clone_filter
     return None
 
   @property
   def PartialCloneExclude(self):
-    exclude = self.manifest.manifestProject.config.GetString(
-        'repo.partialcloneexclude') or ''
+    exclude = self.manifest.manifestProject.partial_clone_exclude or ''
     return set(x.strip() for x in exclude.split(','))
+
+  def SetManifestOverride(self, path):
+    """Override manifestFile.  The caller must call Unload()"""
+    self._outer_client.manifest.manifestFileOverrides[self.path_prefix] = path
 
   @property
   def UseLocalManifests(self):
@@ -887,23 +941,23 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
 
   @property
   def IsMirror(self):
-    return self.manifestProject.config.GetBoolean('repo.mirror')
+    return self.manifestProject.mirror
 
   @property
   def UseGitWorktrees(self):
-    return self.manifestProject.config.GetBoolean('repo.worktree')
+    return self.manifestProject.use_worktree
 
   @property
   def IsArchive(self):
-    return self.manifestProject.config.GetBoolean('repo.archive')
+    return self.manifestProject.archive
 
   @property
   def HasSubmodules(self):
-    return self.manifestProject.config.GetBoolean('repo.submodules')
+    return self.manifestProject.submodules
 
   @property
   def EnableGitLfs(self):
-    return self.manifestProject.config.GetBoolean('repo.git-lfs')
+    return self.manifestProject.git_lfs
 
   def FindManifestByPath(self, path):
     """Returns the manifest containing path."""
@@ -944,23 +998,34 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
   def SubmanifestProject(self, submanifest_path):
     """Return a manifestProject for a submanifest."""
     subdir = self.SubmanifestInfoDir(submanifest_path)
-    mp = MetaProject(self, 'manifests',
-                     gitdir=os.path.join(subdir, 'manifests.git'),
-                     worktree=os.path.join(subdir, 'manifests'))
+    mp = ManifestProject(self, 'manifests',
+                         gitdir=os.path.join(subdir, 'manifests.git'),
+                         worktree=os.path.join(subdir, 'manifests'))
     return mp
 
-  def GetDefaultGroupsStr(self):
-    """Returns the default group string for the platform."""
-    return 'default,platform-' + platform.system().lower()
+  def GetDefaultGroupsStr(self, with_platform=True):
+    """Returns the default group string to use.
+
+    Args:
+      with_platform: a boolean, whether to include the group for the
+                     underlying platform.
+    """
+    groups = ','.join(self.default_groups or ['default'])
+    if with_platform:
+      groups += f',platform-{platform.system().lower()}'
+    return groups
 
   def GetGroupsStr(self):
     """Returns the manifest group string that should be synced."""
-    groups = self.manifestProject.config.GetString('manifest.groups')
-    if not groups:
-      groups = self.GetDefaultGroupsStr()
-    return groups
+    return self.manifestProject.manifest_groups or self.GetDefaultGroupsStr()
 
-  def _Unload(self):
+  def Unload(self):
+    """Unload the manifest.
+
+    If the manifest files have been changed since Load() was called, this will
+    cause the new/updated manifest to be used.
+
+    """
     self._loaded = False
     self._projects = {}
     self._paths = {}
@@ -968,11 +1033,16 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
     self._default = None
     self._submanifests = {}
     self._repo_hooks_project = None
-    self._superproject = {}
+    self._superproject = None
     self._contactinfo = ContactInfo(Wrapper().BUG_URL)
     self._notice = None
     self.branch = None
     self._manifest_server = None
+
+  def Load(self):
+    """Read the manifest into memory."""
+    # Do not expose internal arguments.
+    self._Load()
 
   def _Load(self, initial_client=None, submanifest_depth=0):
     if submanifest_depth > MAX_SUBMANIFEST_DEPTH:
@@ -983,66 +1053,76 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
         # This will load all clients.
         self._outer_client._Load(initial_client=self)
 
-      m = self.manifestProject
-      b = m.GetBranch(m.CurrentBranch).merge
-      if b is not None and b.startswith(R_HEADS):
-        b = b[len(R_HEADS):]
-      self.branch = b
-
-      parent_groups = self.parent_groups
-
-      # The manifestFile was specified by the user which is why we allow include
-      # paths to point anywhere.
-      nodes = []
-      nodes.append(self._ParseManifestXml(
-          self.manifestFile, self.manifestProject.worktree,
-          parent_groups=parent_groups, restrict_includes=False))
-
-      if self._load_local_manifests and self.local_manifests:
-        try:
-          for local_file in sorted(platform_utils.listdir(self.local_manifests)):
-            if local_file.endswith('.xml'):
-              local = os.path.join(self.local_manifests, local_file)
-              # Since local manifests are entirely managed by the user, allow
-              # them to point anywhere the user wants.
-              local_group = f'{LOCAL_MANIFEST_GROUP_PREFIX}:{local_file[:-4]}'
-              nodes.append(self._ParseManifestXml(
-                  local, self.subdir,
-                  parent_groups=f'{local_group},{parent_groups}',
-                  restrict_includes=False))
-        except OSError:
-          pass
+      savedManifestFile = self.manifestFile
+      override = self._outer_client.manifestFileOverrides.get(self.path_prefix)
+      if override:
+        self.manifestFile = override
 
       try:
-        self._ParseManifest(nodes)
-      except ManifestParseError as e:
-        # There was a problem parsing, unload ourselves in case they catch
-        # this error and try again later, we will show the correct error
-        self._Unload()
-        raise e
+        m = self.manifestProject
+        b = m.GetBranch(m.CurrentBranch).merge
+        if b is not None and b.startswith(R_HEADS):
+          b = b[len(R_HEADS):]
+        self.branch = b
 
-      if self.IsMirror:
-        self._AddMetaProjectMirror(self.repoProject)
-        self._AddMetaProjectMirror(self.manifestProject)
+        parent_groups = self.parent_groups
+        if self.path_prefix:
+          parent_groups = f'{SUBMANIFEST_GROUP_PREFIX}:path:{self.path_prefix},{parent_groups}'
 
-      self._loaded = True
+        # The manifestFile was specified by the user which is why we allow include
+        # paths to point anywhere.
+        nodes = []
+        nodes.append(self._ParseManifestXml(
+            self.manifestFile, self.manifestProject.worktree,
+            parent_groups=parent_groups, restrict_includes=False))
 
-      # Now that we have loaded this manifest, load any submanifest  manifests
-      # as well.  We need to do this after self._loaded is set to avoid looping.
-      if self._outer_client:
-        for name in self._submanifests:
-          tree = self._submanifests[name]
-          spec = tree.ToSubmanifestSpec(self)
-          present = os.path.exists(os.path.join(self.subdir, MANIFEST_FILE_NAME))
-          if present and tree.present and not tree.repo_client:
-            if initial_client and initial_client.topdir == self.topdir:
-              tree.repo_client = self
-              tree.present = present
-            elif not os.path.exists(self.subdir):
-              tree.present = False
-          if tree.present:
-            tree.repo_client._Load(initial_client=initial_client,
-                                   submanifest_depth=submanifest_depth + 1)
+        if self._load_local_manifests and self.local_manifests:
+          try:
+            for local_file in sorted(platform_utils.listdir(self.local_manifests)):
+              if local_file.endswith('.xml'):
+                local = os.path.join(self.local_manifests, local_file)
+                # Since local manifests are entirely managed by the user, allow
+                # them to point anywhere the user wants.
+                local_group = f'{LOCAL_MANIFEST_GROUP_PREFIX}:{local_file[:-4]}'
+                nodes.append(self._ParseManifestXml(
+                    local, self.subdir,
+                    parent_groups=f'{local_group},{parent_groups}',
+                    restrict_includes=False))
+          except OSError:
+            pass
+
+        try:
+          self._ParseManifest(nodes)
+        except ManifestParseError as e:
+          # There was a problem parsing, unload ourselves in case they catch
+          # this error and try again later, we will show the correct error
+          self.Unload()
+          raise e
+
+        if self.IsMirror:
+          self._AddMetaProjectMirror(self.repoProject)
+          self._AddMetaProjectMirror(self.manifestProject)
+
+        self._loaded = True
+      finally:
+        if override:
+          self.manifestFile = savedManifestFile
+
+      # Now that we have loaded this manifest, load any submanifests as well.
+      # We need to do this after self._loaded is set to avoid looping.
+      for name in self._submanifests:
+        tree = self._submanifests[name]
+        spec = tree.ToSubmanifestSpec()
+        present = os.path.exists(os.path.join(self.subdir, MANIFEST_FILE_NAME))
+        if present and tree.present and not tree.repo_client:
+          if initial_client and initial_client.topdir == self.topdir:
+            tree.repo_client = self
+            tree.present = present
+          elif not os.path.exists(self.subdir):
+            tree.present = False
+        if present and tree.present:
+          tree.repo_client._Load(initial_client=initial_client,
+                                 submanifest_depth=submanifest_depth + 1)
 
   def _ParseManifestXml(self, path, include_root, parent_groups='',
                         restrict_includes=True):
@@ -1208,6 +1288,8 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
           remote = self._default.remote
         else:
           remote = self._get_remote(node)
+        dest_branch = node.getAttribute('dest-branch')
+        upstream = node.getAttribute('upstream')
 
         named_projects = self._projects[name]
         if dest_path and not path and len(named_projects) > 1:
@@ -1223,6 +1305,10 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
 
           if remote_name:
             p.remote = remote.ToRemoteSpec(name)
+          if dest_branch:
+            p.dest_branch = dest_branch
+          if upstream:
+            p.upstream = upstream
 
           if dest_path:
             del self._paths[p.relpath]
@@ -1244,11 +1330,10 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
       if node.nodeName == 'superproject':
         name = self._reqatt(node, 'name')
         # There can only be one superproject.
-        if self._superproject.get('name'):
+        if self._superproject:
           raise ManifestParseError(
               'duplicate superproject in %s' %
               (self.manifestFile))
-        self._superproject['name'] = name
         remote_name = node.getAttribute('remote')
         if not remote_name:
           remote = self._default.remote
@@ -1257,14 +1342,16 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
         if remote is None:
           raise ManifestParseError("no remote for superproject %s within %s" %
                                    (name, self.manifestFile))
-        self._superproject['remote'] = remote.ToRemoteSpec(name)
         revision = node.getAttribute('revision') or remote.revision
         if not revision:
           revision = self._default.revisionExpr
         if not revision:
           raise ManifestParseError('no revision for superproject %s within %s' %
                                    (name, self.manifestFile))
-        self._superproject['revision'] = revision
+        self._superproject = Superproject(self,
+                                          name=name,
+                                          remote=remote.ToRemoteSpec(name),
+                                          revision=revision)
       if node.nodeName == 'contactinfo':
         bugurl = self._reqatt(node, 'bugurl')
         # This element can be repeated, later entries will clobber earlier ones.
@@ -1306,7 +1393,7 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
 
   def _AddMetaProjectMirror(self, m):
     name = None
-    m_url = m.GetRemote(m.remote.name).url
+    m_url = m.GetRemote().url
     if m_url.endswith('/.git'):
       raise ManifestParseError('refusing to mirror %s' % m_url)
 
@@ -1383,8 +1470,8 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
     d.destBranchExpr = node.getAttribute('dest-branch') or None
     d.upstreamExpr = node.getAttribute('upstream') or None
 
-    d.sync_j = XmlInt(node, 'sync-j', 1)
-    if d.sync_j <= 0:
+    d.sync_j = XmlInt(node, 'sync-j', None)
+    if d.sync_j is not None and d.sync_j <= 0:
       raise ManifestParseError('%s: sync-j must be greater than 0, not "%s"' %
                                (self.manifestFile, d.sync_j))
 
@@ -1451,6 +1538,7 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
     if node.hasAttribute('groups'):
       groups = node.getAttribute('groups')
     groups = self._ParseList(groups)
+    default_groups = self._ParseList(node.getAttribute('default-groups'))
     path = node.getAttribute('path')
     if path == '':
       path = None
@@ -1471,7 +1559,7 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
             '<submanifest> invalid "path": %s: %s' % (path, msg))
 
     submanifest = _XmlSubmanifest(name, remote, project, revision, manifestName,
-                                  groups, path, self)
+                                  groups, default_groups, path, self)
 
     for n in node.childNodes:
       if n.nodeName == 'annotation':
@@ -1595,6 +1683,10 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
       name: a string, the name of the project.
       path: a string, the path of the project.
       remote: a string, the remote.name of the project.
+
+    Returns:
+      A tuple of (relpath, worktree, gitdir, objdir, use_git_worktrees) for the
+      project with |name| and |path|.
     """
     # The manifest entries might have trailing slashes.  Normalize them to avoid
     # unexpected filesystem behavior since we do string concatenation below.
@@ -1602,7 +1694,7 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
     name = name.rstrip('/')
     remote = remote.rstrip('/')
     use_git_worktrees = False
-    use_remote_name = bool(self._outer_client._submanifests)
+    use_remote_name = self.is_multimanifest
     relpath = path
     if self.IsMirror:
       worktree = None
@@ -1618,7 +1710,7 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
       # We allow people to mix git worktrees & non-git worktrees for now.
       # This allows for in situ migration of repo clients.
       if os.path.exists(gitdir) or not self.UseGitWorktrees:
-        objdir = os.path.join(self.subdir, 'project-objects', namepath)
+        objdir = os.path.join(self.repodir, 'project-objects', namepath)
       else:
         use_git_worktrees = True
         gitdir = os.path.join(self.repodir, 'worktrees', namepath)
@@ -1632,6 +1724,9 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
       name: a string, the name of the project.
       all_manifests: a boolean, if True, then all manifests are searched. If
                      False, then only this manifest is searched.
+
+    Returns:
+      A list of Project instances with name |name|.
     """
     if all_manifests:
       return list(itertools.chain.from_iterable(
@@ -1850,11 +1945,14 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
     fromKeys = sorted(fromProjects.keys())
     toKeys = sorted(toProjects.keys())
 
-    diff = {'added': [], 'removed': [], 'changed': [], 'unreachable': []}
+    diff = {'added': [], 'removed': [], 'missing': [], 'changed': [], 'unreachable': []}
 
     for proj in fromKeys:
       if proj not in toKeys:
         diff['removed'].append(fromProjects[proj])
+      elif not fromProjects[proj].Exists:
+        diff['missing'].append(toProjects[proj])
+        toKeys.remove(proj)
       else:
         fromProj = fromProjects[proj]
         toProj = toProjects[proj]
@@ -1892,6 +1990,16 @@ class RepoClient(XmlManifest):
   """Manages a repo client checkout."""
 
   def __init__(self, repodir, manifest_file=None, submanifest_path='', **kwargs):
+    """Initialize.
+
+    Args:
+      repodir: Path to the .repo/ dir for holding all internal checkout state.
+          It must be in the top directory of the repo client checkout.
+      manifest_file: Full path to the manifest file to parse.  This will usually
+          be |repodir|/|MANIFEST_FILE_NAME|.
+      submanifest_path: The submanifest root relative to the repo root.
+      **kwargs: Additional keyword arguments, passed to XmlManifest.
+    """
     self.isGitcClient = False
     submanifest_path = submanifest_path or ''
     if submanifest_path:

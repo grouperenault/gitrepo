@@ -1,13 +1,5 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
-
-## the old repo "wrapper"
-## FIXME: remove dead code
-
-# some of the originally wrapped code import this code
-# so it is kept here waiting for a kind soul to clean it up
-
-# repo default configuration
 #
 # Copyright (C) 2008 The Android Open Source Project
 #
@@ -157,7 +149,7 @@ if not REPO_REV:
 BUG_URL = 'https://bugs.chromium.org/p/gerrit/issues/entry?template=Repo+tool+issue'
 
 # increment this whenever we make important changes to this script
-VERSION = (2, 21)
+VERSION = (2, 30)
 
 # increment this if the MAINTAINER_KEYS block is modified
 KEYRING_VERSION = (2, 3)
@@ -324,6 +316,10 @@ def InitParser(parser, gitc_init=False):
                    help='download the manifest as a static file '
                         'rather then create a git checkout of '
                         'the manifest repo')
+  group.add_option('--manifest-depth', type='int', default=0, metavar='DEPTH',
+                   help='create a shallow clone of the manifest repo with '
+                        'given depth (0 for full clone); see git clone '
+                        '(default: %default)')
 
   # Options that only affect manifest project, and not any of the projects
   # specified in the manifest itself.
@@ -333,9 +329,9 @@ def InitParser(parser, gitc_init=False):
   # want -c, so try to satisfy both as best we can.
   if not gitc_init:
     cbr_opts += ['-c']
-  group.add_option(*cbr_opts,
+  group.add_option(*cbr_opts, default=True,
                    dest='current_branch_only', action='store_true',
-                   help='fetch only current manifest branch from server')
+                   help='fetch only current manifest branch from server (default)')
   group.add_option('--no-current-branch',
                    dest='current_branch_only', action='store_false',
                    help='fetch all manifest branches from server')
@@ -451,8 +447,7 @@ def run_command(cmd, **kwargs):
     except UnicodeError:
       print('repo: warning: Invalid UTF-8 output:\ncmd: %r\n%r' % (cmd, output),
             file=sys.stderr)
-      # TODO(vapier): Once we require Python 3, use 'backslashreplace'.
-      return output.decode('utf-8', 'replace')
+      return output.decode('utf-8', 'backslashreplace')
 
   # Run & package the results.
   proc = subprocess.Popen(cmd, **kwargs)
@@ -617,21 +612,23 @@ def _Init(args, gitc_init=False):
       sys.exit(1)
 
   _CheckGitVersion()
-
-
-def clone_repo(opt, url): # unusued for pypi version
   try:
     if not opt.quiet:
       print('Downloading Repo source from', url)
-    dst = os.path.abspath(os.path.join(repodir, S_repo))
+    dst_final = os.path.abspath(os.path.join(repodir, S_repo))
+    dst = dst_final + '.tmp'
+    shutil.rmtree(dst, ignore_errors=True)
     _Clone(url, dst, opt.clone_bundle, opt.quiet, opt.verbose)
 
     remote_ref, rev = check_repo_rev(dst, rev, opt.repo_verify, quiet=opt.quiet)
     _Checkout(dst, remote_ref, rev, opt.quiet)
 
     if not os.path.isfile(os.path.join(dst, 'repo')):
-      print("warning: '%s' does not look like a git-repo repository, is "
-            "REPO_URL set correctly?" % url, file=sys.stderr)
+      print("fatal: '%s' does not look like a git-repo repository, is "
+            "--repo-url set correctly?" % url, file=sys.stderr)
+      raise CloneFailure()
+
+    os.rename(dst, dst_final)
 
   except CloneFailure:
     print('fatal: double check your --repo-rev setting.', file=sys.stderr)
@@ -1328,6 +1325,7 @@ def main(orig_args):
         print("fatal: cloning the git-repo repository failed, will remove "
               "'%s' " % path, file=sys.stderr)
         shutil.rmtree(path, ignore_errors=True)
+        shutil.rmtree(path + '.tmp', ignore_errors=True)
         sys.exit(1)
       repo_main, rel_repo_dir = _FindRepo()
     else:
@@ -1355,11 +1353,12 @@ def main(orig_args):
   print("fatal: unable to start %s" % repo_main, file=sys.stderr)
   sys.exit(148)
 
+
 def WrapperPath():
   return None
 
-if __name__ == '__main__':
-  main(sys.argv[1:])
-
 def Wrapper():
   return sys.modules[__name__]
+
+if __name__ == '__main__':
+  main(sys.argv[1:])

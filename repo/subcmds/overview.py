@@ -12,11 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
-from repo.color import Coloring
-from repo.command import PagedCommand
 import optparse
 
+from repo.color import Coloring
+from repo.command import PagedCommand
 
 class Overview(PagedCommand):
   COMMON = True

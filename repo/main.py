@@ -21,7 +21,6 @@ which takes care of execing this entry point.
 """
 
 import getpass
-import errno
 import netrc
 import optparse
 import os
@@ -39,9 +38,10 @@ except ImportError:
 
 from repo.color import SetDefaultColoring
 from repo import event_log
-from repo.trace import SetTrace
+from repo.trace import SetTrace, Trace, SetTraceToStderr
 from repo.git_command import user_agent
 from repo.git_config import RepoConfig
+from repo.git_trace2_event_log import EventLog
 from repo.command import InteractiveCommand
 from repo.command import MirrorSafeCommand
 from repo.command import GitcAvailableCommand, GitcClientCommand
@@ -59,7 +59,7 @@ from repo import gitc_utils
 from repo.manifest_xml import GitcClient, RepoClient
 from repo.pager import RunPager, TerminatePager
 from repo.wrapper import WrapperPath, Wrapper
-
+from repo.repo_dir import getRepoDir
 from repo.subcmds import all_commands
 
 
@@ -111,6 +111,9 @@ global_options.add_option('--color',
 global_options.add_option('--trace',
                           dest='trace', action='store_true',
                           help='trace git command execution (REPO_TRACE=1)')
+global_options.add_option('--trace-to-stderr',
+                          dest='trace_to_stderr', action='store_true',
+                          help='trace outputs go to stderr in addition to .repo/TRACE_FILE')
 global_options.add_option('--trace-python',
                           dest='trace_python', action='store_true',
                           help='trace python command execution')
@@ -199,8 +202,6 @@ class _Repo(object):
   def _Run(self, name, gopts, argv):
     """Execute the requested subcommand."""
     result = 0
-    if gopts.trace:
-      SetTrace()
 
     # Handle options that terminate quickly first.
     if gopts.help or gopts.help_all:
@@ -217,6 +218,21 @@ class _Repo(object):
       self._PrintHelp(short=True)
       return 1
 
+    run = lambda: self._RunLong(name, gopts, argv) or 0
+    with Trace('starting new command: %s', ', '.join([name] + argv),
+               first_trace=True):
+      if gopts.trace_python:
+        import trace
+        tracer = trace.Trace(count=False, trace=True, timing=True,
+                             ignoredirs=set(sys.path[1:]))
+        result = tracer.runfunc(run)
+      else:
+        result = run()
+    return result
+
+  def _RunLong(self, name, gopts, argv):
+    """Execute the (longer running) requested subcommand."""
+    result = 0
     SetDefaultColoring(gopts.color)
 
     git_trace2_event_log = EventLog()
@@ -295,8 +311,7 @@ class _Repo(object):
       cmd.ValidateOptions(copts, cargs)
 
       this_manifest_only = copts.this_manifest_only
-      # If not specified, default to using the outer manifest.
-      outer_manifest = copts.outer_manifest is not False
+      outer_manifest = copts.outer_manifest
       if cmd.MULTI_MANIFEST_SUPPORT or this_manifest_only:
         result = cmd.Execute(copts, cargs)
       elif outer_manifest and repo_client.manifest.is_submanifest:
@@ -311,7 +326,7 @@ class _Repo(object):
         # (sub)manifest, and then any child submanifests.
         result = cmd.Execute(copts, cargs)
         for submanifest in repo_client.manifest.submanifests.values():
-          spec = submanifest.ToSubmanifestSpec(root=repo_client.outer_client)
+          spec = submanifest.ToSubmanifestSpec()
           gopts.submanifest_path = submanifest.repo_client.path_prefix
           child_argv = argv[:]
           child_argv.append('--no-outer-manifest')
@@ -633,55 +648,22 @@ def init_http():
     handlers.append(urllib.request.HTTPSHandler(debuglevel=1))
   urllib.request.install_opener(urllib.request.build_opener(*handlers))
 
-REPODIR = '.repo'                # name of repo's private directory
-
-def _FindRepo():
-  """Look for a repo installation, starting at the current directory.
-  """
-  curdir = os.getcwd()
-  repo = None
-
-  olddir = None
-  while curdir != '/' \
-          and curdir != olddir \
-          and not repo:
-    repo = os.path.join(curdir, REPODIR)
-    if not os.path.isdir(repo):
-      repo = None
-      olddir = curdir
-      curdir = os.path.dirname(curdir)
-  return repo
-
-def _MkRepoDir(repodir):
-  try:
-    os.mkdir(repodir)
-  except OSError as e:
-    if e.errno != errno.EEXIST:
-      print('fatal: cannot make %s directory: %s'
-             % (repodir, e.strerror), file=sys.stderr)
-      # Don't raise CloneFailure; that would delete the
-      # name. Instead exit immediately.
-      #
-      sys.exit(1)
-
 def _Main(argv):
   result = 0
-  repodir = _FindRepo()
-  if repodir is None:
-    repodir = os.path.join(os.getcwd(), REPODIR)
-    _MkRepoDir(repodir)
-  repo = _Repo(repodir)
+
+  repo = _Repo(getRepoDir())
+
   try:
     init_http()
     name, gopts, argv = repo._ParseArgs(argv)
-    run = lambda: repo._Run(name, gopts, argv) or 0
-    if gopts.trace_python:
-      import trace
-      tracer = trace.Trace(count=False, trace=True, timing=True,
-                           ignoredirs=set(sys.path[1:]))
-      result = tracer.runfunc(run)
-    else:
-      result = run()
+
+    if gopts.trace:
+      SetTrace()
+
+    if gopts.trace_to_stderr:
+      SetTraceToStderr()
+
+    result = repo._Run(name, gopts, argv) or 0
   except KeyboardInterrupt:
     print('aborted by user', file=sys.stderr)
     result = 1

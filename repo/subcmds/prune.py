@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from repo.color import Coloring
-from repo.command import DEFAULT_LOCAL_JOBS, PagedCommand
 import itertools
 
+from repo.color import Coloring
+from repo.command import DEFAULT_LOCAL_JOBS, PagedCommand
 
 class Prune(PagedCommand):
   COMMON = True

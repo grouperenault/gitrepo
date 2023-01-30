@@ -22,9 +22,9 @@ import re
 import ssl
 import subprocess
 import sys
-
-import urllib.request
+from typing import Union
 import urllib.error
+import urllib.request
 
 from repo.error import GitError, UploadError
 from repo import platform_utils
@@ -33,9 +33,6 @@ from http.client import HTTPException
 
 from repo.git_command import GitCommand
 from repo.git_refs import R_CHANGES, R_HEADS, R_TAGS
-import urllib.error
-import urllib.request
-
 
 # Prefix that is prepended to all the keys of SyncAnalysisState's data
 # that is saved in the config.
@@ -123,7 +120,7 @@ class GitConfig(object):
       return self.defaults.Has(name, include_defaults=True)
     return False
 
-  def GetInt(self, name):
+  def GetInt(self, name: str) -> Union[int, None]:
     """Returns an integer from the configuration file.
 
     This follows the git config syntax.
@@ -132,7 +129,7 @@ class GitConfig(object):
       name: The key to lookup.
 
     Returns:
-      None if the value was not defined, or is not a boolean.
+      None if the value was not defined, or is not an int.
       Otherwise, the number itself.
     """
     v = self.GetString(name)
@@ -158,6 +155,9 @@ class GitConfig(object):
     try:
       return int(v, base=base) * mult
     except ValueError:
+      print(
+          f"warning: expected {name} to represent an integer, got {v} instead",
+          file=sys.stderr)
       return None
 
   def DumpConfigDict(self):
@@ -175,7 +175,7 @@ class GitConfig(object):
       config_dict[key] = self.GetString(key)
     return config_dict
 
-  def GetBoolean(self, name):
+  def GetBoolean(self, name: str) -> Union[str, None]:
     """Returns a boolean from the configuration file.
        None : The value was not defined, or is not a boolean.
        True : The value was set to true or yes.
@@ -189,6 +189,8 @@ class GitConfig(object):
       return True
     if v in ('false', 'no'):
       return False
+    print(f"warning: expected {name} to represent a boolean, got {v} instead",
+            file=sys.stderr)
     return None
 
   def SetBoolean(self, name, value):
@@ -197,7 +199,7 @@ class GitConfig(object):
       value = 'true' if value else 'false'
     self.SetString(name, value)
 
-  def GetString(self, name, all_keys=False):
+  def GetString(self, name: str, all_keys: bool = False) -> Union[str,  None]:
     """Get the first value for a key, or None if it is not defined.
 
        This configuration file is used first, if the key is not
@@ -225,8 +227,8 @@ class GitConfig(object):
     """Set the value(s) for a key.
        Only this configuration file is modified.
 
-       The supplied value should be either a string,
-       or a list of strings (to store multiple values).
+       The supplied value should be either a string, or a list of strings (to
+       store multiple values), or None (to delete the key).
     """
     key = _key(name)
 
@@ -355,9 +357,9 @@ class GitConfig(object):
     except OSError:
       return None
     try:
-      Trace(': parsing %s', self.file)
-      with open(self._json) as fd:
-        return json.load(fd)
+      with Trace(': parsing %s', self.file):
+        with open(self._json) as fd:
+          return json.load(fd)
     except (IOError, ValueError):
       platform_utils.remove(self._json, missing_ok=True)
       return None
@@ -407,10 +409,7 @@ class GitConfig(object):
                    capture_stdout=True,
                    capture_stderr=True)
     if p.Wait() == 0:
-      ret = p.stdout
-      if isinstance(ret, bytes):
-        ret = ret.decode('utf-8')
-      return ret
+      return p.stdout
     else:
       raise GitError('git config %s: %s' % (str(args), p.stderr))
 

@@ -14,31 +14,17 @@
 
 """Unittests for the wrapper.py module."""
 
-import contextlib
 from io import StringIO
 import os
 import re
-import shutil
 import sys
 import tempfile
 import unittest
 from unittest import mock
 
-from repo import git_command, main
+from repo import git_command
+from repo import main
 from repo import wrapper
-from repo import platform_utils
-
-
-@contextlib.contextmanager
-def TemporaryDirectory():
-  """Create a new empty git checkout for testing."""
-  # TODO(vapier): Convert this to tempfile.TemporaryDirectory once we drop
-  # Python 2 support entirely.
-  try:
-    tempdir = tempfile.mkdtemp(prefix='repo-tests')
-    yield tempdir
-  finally:
-    platform_utils.rmtree(tempdir)
 
 
 def fixture(*paths):
@@ -53,7 +39,7 @@ class RepoWrapperTestCase(unittest.TestCase):
   def setUp(self):
     """Load the wrapper module every time."""
     wrapper._wrapper_module = None
-    wrapper._gitc_manifest_dir = None  # reset cache
+    wrapper._gitc_manifest_dir = None
     self.wrapper = wrapper.Wrapper()
 
 
@@ -74,12 +60,12 @@ class RepoWrapperUnitTest(RepoWrapperTestCase):
   def test_python_constraints(self):
     """The launcher should never require newer than main.py."""
     self.assertGreaterEqual(main.MIN_PYTHON_VERSION_HARD,
-                            wrapper.MIN_PYTHON_VERSION_HARD)
+                            self.wrapper.MIN_PYTHON_VERSION_HARD)
     self.assertGreaterEqual(main.MIN_PYTHON_VERSION_SOFT,
-                            wrapper.MIN_PYTHON_VERSION_SOFT)
+                            self.wrapper.MIN_PYTHON_VERSION_SOFT)
     # Make sure the versions are themselves in sync.
-    self.assertGreaterEqual(wrapper.MIN_PYTHON_VERSION_SOFT,
-                            wrapper.MIN_PYTHON_VERSION_HARD)
+    self.assertGreaterEqual(self.wrapper.MIN_PYTHON_VERSION_SOFT,
+                            self.wrapper.MIN_PYTHON_VERSION_HARD)
 
   def test_init_parser(self):
     """Make sure 'init' GetParser works."""
@@ -174,7 +160,9 @@ class RunCommand(RepoWrapperTestCase):
   def test_capture(self):
     """Check capture_output handling."""
     ret = self.wrapper.run_command(['echo', 'hi'], capture_output=True)
-    self.assertEqual(ret.stdout, 'hi\n')
+    # echo command appends OS specific linesep, but on Windows + Git Bash
+    # we get UNIX ending, so we allow both.
+    self.assertIn(ret.stdout, ['hi' + os.linesep, 'hi\n'])
 
   def test_check(self):
     """Check check handling."""
@@ -336,19 +324,19 @@ class NeedSetupGnuPG(RepoWrapperTestCase):
 
   def test_missing_dir(self):
     """The ~/.repoconfig tree doesn't exist yet."""
-    with TemporaryDirectory() as tempdir:
+    with tempfile.TemporaryDirectory(prefix='repo-tests') as tempdir:
       self.wrapper.home_dot_repo = os.path.join(tempdir, 'foo')
       self.assertTrue(self.wrapper.NeedSetupGnuPG())
 
   def test_missing_keyring(self):
     """The keyring-version file doesn't exist yet."""
-    with TemporaryDirectory() as tempdir:
+    with tempfile.TemporaryDirectory(prefix='repo-tests') as tempdir:
       self.wrapper.home_dot_repo = tempdir
       self.assertTrue(self.wrapper.NeedSetupGnuPG())
 
   def test_empty_keyring(self):
     """The keyring-version file exists, but is empty."""
-    with TemporaryDirectory() as tempdir:
+    with tempfile.TemporaryDirectory(prefix='repo-tests') as tempdir:
       self.wrapper.home_dot_repo = tempdir
       with open(os.path.join(tempdir, 'keyring-version'), 'w'):
         pass
@@ -356,7 +344,7 @@ class NeedSetupGnuPG(RepoWrapperTestCase):
 
   def test_old_keyring(self):
     """The keyring-version file exists, but it's old."""
-    with TemporaryDirectory() as tempdir:
+    with tempfile.TemporaryDirectory(prefix='repo-tests') as tempdir:
       self.wrapper.home_dot_repo = tempdir
       with open(os.path.join(tempdir, 'keyring-version'), 'w') as fp:
         fp.write('1.0\n')
@@ -364,7 +352,7 @@ class NeedSetupGnuPG(RepoWrapperTestCase):
 
   def test_new_keyring(self):
     """The keyring-version file exists, and is up-to-date."""
-    with TemporaryDirectory() as tempdir:
+    with tempfile.TemporaryDirectory(prefix='repo-tests') as tempdir:
       self.wrapper.home_dot_repo = tempdir
       with open(os.path.join(tempdir, 'keyring-version'), 'w') as fp:
         fp.write('1000.0\n')
@@ -376,7 +364,7 @@ class SetupGnuPG(RepoWrapperTestCase):
 
   def test_full(self):
     """Make sure it works completely."""
-    with TemporaryDirectory() as tempdir:
+    with tempfile.TemporaryDirectory(prefix='repo-tests') as tempdir:
       self.wrapper.home_dot_repo = tempdir
       self.wrapper.gpg_dir = os.path.join(self.wrapper.home_dot_repo, 'gnupg')
       self.assertTrue(self.wrapper.SetupGnuPG(True))
@@ -426,7 +414,8 @@ class GitCheckoutTestCase(RepoWrapperTestCase):
   @classmethod
   def setUpClass(cls):
     # Create a repo to operate on, but do it once per-class.
-    cls.GIT_DIR = tempfile.mkdtemp(prefix='repo-rev-tests')
+    cls.tempdirobj = tempfile.TemporaryDirectory(prefix='repo-rev-tests')
+    cls.GIT_DIR = cls.tempdirobj.name
     run_git = wrapper.Wrapper().run_git
 
     remote = os.path.join(cls.GIT_DIR, 'remote')
@@ -455,10 +444,10 @@ class GitCheckoutTestCase(RepoWrapperTestCase):
 
   @classmethod
   def tearDownClass(cls):
-    if not cls.GIT_DIR:
+    if not cls.tempdirobj:
       return
 
-    shutil.rmtree(cls.GIT_DIR)
+    cls.tempdirobj.cleanup()
 
 
 class ResolveRepoRev(GitCheckoutTestCase):
@@ -470,7 +459,7 @@ class ResolveRepoRev(GitCheckoutTestCase):
     self.assertEqual('refs/heads/stable', rrev)
     self.assertEqual(self.REV_LIST[1], lrev)
 
-    with self.assertRaises(wrapper.CloneFailure):
+    with self.assertRaises(self.wrapper.CloneFailure):
       self.wrapper.resolve_repo_rev(self.GIT_DIR, 'refs/heads/unknown')
 
   def test_explicit_tag(self):
@@ -479,7 +468,7 @@ class ResolveRepoRev(GitCheckoutTestCase):
     self.assertEqual('refs/tags/v1.0', rrev)
     self.assertEqual(self.REV_LIST[1], lrev)
 
-    with self.assertRaises(wrapper.CloneFailure):
+    with self.assertRaises(self.wrapper.CloneFailure):
       self.wrapper.resolve_repo_rev(self.GIT_DIR, 'refs/tags/unknown')
 
   def test_branch_name(self):
@@ -514,7 +503,7 @@ class ResolveRepoRev(GitCheckoutTestCase):
 
   def test_unknown(self):
     """Check unknown ref/commit argument."""
-    with self.assertRaises(wrapper.CloneFailure):
+    with self.assertRaises(self.wrapper.CloneFailure):
       self.wrapper.resolve_repo_rev(self.GIT_DIR, 'boooooooya')
 
 
@@ -565,7 +554,3 @@ class CheckRepoRev(GitCheckoutTestCase):
       rrev, lrev = self.wrapper.check_repo_rev(self.GIT_DIR, 'stable', repo_verify=False)
     self.assertEqual('refs/heads/stable', rrev)
     self.assertEqual(self.REV_LIST[1], lrev)
-
-
-if __name__ == '__main__':
-  unittest.main()

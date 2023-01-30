@@ -1,4 +1,4 @@
-# Copyright 2019 The Android Open Source Project
+# Copyright 2022 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,27 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# https://tox.readthedocs.io/
+"""Unittests for the update_manpages module."""
 
-[tox]
-envlist = py37, py38, py39, py310
+import unittest
+import tests.update_manpages as um
 
-[gh-actions]
-python =
-    3.7: py37
-    3.8: py38
-    3.9: py39
-    3.10: py310
 
-[testenv]
-deps =
-    pytest
-    pytest-timeout
-commands = {envpython} run_tests {posargs}
-setenv =
-    GIT_AUTHOR_NAME = Repo test author
-    GIT_COMMITTER_NAME = Repo test committer
-    EMAIL = repo@gerrit.nodomain
+class UpdateManpagesTest(unittest.TestCase):
+  """Tests the update-manpages code."""
 
-[pytest]
-timeout = 300
+  def test_replace_regex(self):
+    """Check that replace_regex works."""
+    data = '\n\033[1mSummary\033[m\n'
+    self.assertEqual(um.replace_regex(data),'\nSummary\n')

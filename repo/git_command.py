@@ -16,6 +16,7 @@ import functools
 import os
 import sys
 import subprocess
+from typing import Any, Optional
 
 from repo.git_refs import HEAD
 from repo.error import GitError
@@ -157,7 +158,56 @@ def git_require(min_version, fail=False, msg=''):
   return False
 
 
+def _build_env(
+  _kwargs_only=(),
+  bare: Optional[bool] = False,
+  disable_editor: Optional[bool] = False,
+  ssh_proxy: Optional[Any] = None,
+  gitdir: Optional[str] = None,
+  objdir: Optional[str] = None
+):
+  """Constucts an env dict for command execution."""
+
+  assert _kwargs_only == (), '_build_env only accepts keyword arguments.'
+
+  env = GitCommand._GetBasicEnv()
+
+  if disable_editor:
+    env['GIT_EDITOR'] = ':'
+  if ssh_proxy:
+    env['REPO_SSH_SOCK'] = ssh_proxy.sock()
+    env['GIT_SSH'] = ssh_proxy.proxy
+    env['GIT_SSH_VARIANT'] = 'ssh'
+  if 'http_proxy' in env and 'darwin' == sys.platform:
+    s = "'http.proxy=%s'" % (env['http_proxy'],)
+    p = env.get('GIT_CONFIG_PARAMETERS')
+    if p is not None:
+      s = p + ' ' + s
+    env['GIT_CONFIG_PARAMETERS'] = s
+  if 'GIT_ALLOW_PROTOCOL' not in env:
+    env['GIT_ALLOW_PROTOCOL'] = (
+        'file:git:http:https:ssh:persistent-http:persistent-https:sso:rpc')
+  env['GIT_HTTP_USER_AGENT'] = user_agent.git
+
+  if objdir:
+    # Set to the place we want to save the objects.
+    env['GIT_OBJECT_DIRECTORY'] = objdir
+
+    alt_objects = os.path.join(gitdir, 'objects') if gitdir else None
+    if (alt_objects and
+        os.path.realpath(alt_objects) != os.path.realpath(objdir)):
+      # Allow git to search the original place in case of local or unique refs
+      # that git will attempt to resolve even if we aren't fetching them.
+      env['GIT_ALTERNATE_OBJECT_DIRECTORIES'] = alt_objects
+  if bare and gitdir is not None:
+      env[GIT_DIR] = gitdir
+
+  return env
+
+
 class GitCommand(object):
+  """Wrapper around a single git invocation."""
+
   def __init__(self,
                project,
                cmdv,
@@ -171,30 +221,13 @@ class GitCommand(object):
                cwd=None,
                gitdir=None,
                objdir=None):
-    env = self._GetBasicEnv()
-
-    if disable_editor:
-      env['GIT_EDITOR'] = ':'
-    if ssh_proxy:
-      env['REPO_SSH_SOCK'] = ssh_proxy.sock()
-      env['GIT_SSH'] = ssh_proxy.proxy
-      env['GIT_SSH_VARIANT'] = 'ssh'
-    if 'http_proxy' in env and 'darwin' == sys.platform:
-      s = "'http.proxy=%s'" % (env['http_proxy'],)
-      p = env.get('GIT_CONFIG_PARAMETERS')
-      if p is not None:
-        s = p + ' ' + s
-      env['GIT_CONFIG_PARAMETERS'] = s
-    if 'GIT_ALLOW_PROTOCOL' not in env:
-      env['GIT_ALLOW_PROTOCOL'] = (
-          'file:git:http:https:ssh:persistent-http:persistent-https:sso:rpc')
-    env['GIT_HTTP_USER_AGENT'] = user_agent.git
 
     if project:
       if not cwd:
         cwd = project.worktree
       if not gitdir:
         gitdir = project.gitdir
+
     # Git on Windows wants its paths only using / for reliability.
     if platform_utils.isWindows():
       if objdir:
@@ -202,18 +235,16 @@ class GitCommand(object):
       if gitdir:
         gitdir = gitdir.replace('\\', '/')
 
-    if objdir:
-      # Set to the place we want to save the objects.
-      env['GIT_OBJECT_DIRECTORY'] = objdir
-      if gitdir:
-        # Allow git to search the original place in case of local or unique refs
-        # that git will attempt to resolve even if we aren't fetching them.
-        env['GIT_ALTERNATE_OBJECT_DIRECTORIES'] = gitdir + '/objects'
+    env = _build_env(
+      disable_editor=disable_editor,
+      ssh_proxy=ssh_proxy,
+      objdir=objdir,
+      gitdir=gitdir,
+      bare=bare,
+    )
 
     command = [GIT]
     if bare:
-      if gitdir:
-        env[GIT_DIR] = gitdir
       cwd = None
     command.append(cmdv[0])
     # Need to use the --progress flag for fetch/clone so output will be
@@ -228,11 +259,10 @@ class GitCommand(object):
     stderr = (subprocess.STDOUT if merge_output else
               (subprocess.PIPE if capture_stderr else None))
 
+    dbg = ''
     if IsTrace():
       global LAST_CWD
       global LAST_GITDIR
-
-      dbg = ''
 
       if cwd and LAST_CWD != cwd:
         if LAST_GITDIR or LAST_CWD:
@@ -261,36 +291,31 @@ class GitCommand(object):
         dbg += ' 2>|'
       elif stderr == subprocess.STDOUT:
         dbg += ' 2>&1'
-      Trace('%s', dbg)
 
-    try:
-      p = subprocess.Popen(command,
-                           cwd=cwd,
-                           env=env,
-                           encoding='utf-8',
-                           errors='backslashreplace',
-                           stdin=stdin,
-                           stdout=stdout,
-                           stderr=stderr)
-    except Exception as e:
-      raise GitError('%s: %s' % (command[1], e))
+    with Trace('git command %s %s with debug: %s', LAST_GITDIR, command, dbg):
+      try:
+        p = subprocess.Popen(command,
+                            cwd=cwd,
+                            env=env,
+                            encoding='utf-8',
+                            errors='backslashreplace',
+                            stdin=stdin,
+                            stdout=stdout,
+                            stderr=stderr)
+      except Exception as e:
+        raise GitError('%s: %s' % (command[1], e))
 
-    if ssh_proxy:
-      ssh_proxy.add_client(p)
-
-    self.process = p
-    if input:
-      if isinstance(input, str):
-        input = input.encode('utf-8')
-      p.stdin.write(input)
-      p.stdin.close()
-
-    try:
-      self.stdout, self.stderr = p.communicate()
-    finally:
       if ssh_proxy:
-        ssh_proxy.remove_client(p)
-    self.rc = p.wait()
+        ssh_proxy.add_client(p)
+
+      self.process = p
+
+      try:
+        self.stdout, self.stderr = p.communicate(input=input)
+      finally:
+        if ssh_proxy:
+          ssh_proxy.remove_client(p)
+      self.rc = p.wait()
 
   @staticmethod
   def _GetBasicEnv():
