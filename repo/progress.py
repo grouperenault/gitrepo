@@ -16,7 +16,7 @@ import os
 import sys
 from time import time
 
-from repo.trace import IsTrace
+from repo.trace import IsTraceToStderr
 
 _NOT_TTY = not os.isatty(2)
 
@@ -24,6 +24,11 @@ _NOT_TTY = not os.isatty(2)
 # It does not move the cursor, so this is usually followed by \r to move to
 # column 0.
 CSI_ERASE_LINE = '\x1b[2K'
+
+# This will erase all content in the current line after the cursor.  This is
+# useful for partial updates & progress messages as the terminal can display
+# it better.
+CSI_ERASE_LINE_AFTER = '\x1b[K'
 
 
 def duration_str(total):
@@ -76,7 +81,7 @@ class Progress(object):
   def update(self, inc=1, msg=''):
     self._done += inc
 
-    if _NOT_TTY or IsTrace():
+    if _NOT_TTY or IsTraceToStderr():
       return
 
     if not self._show:
@@ -86,10 +91,10 @@ class Progress(object):
         return
 
     if self._total <= 0:
-      sys.stderr.write('%s\r%s: %d,' % (
-          CSI_ERASE_LINE,
+      sys.stderr.write('\r%s: %d,%s' % (
           self._title,
-          self._done))
+          self._done,
+          CSI_ERASE_LINE_AFTER))
       sys.stderr.flush()
     else:
       p = (100 * self._done) / self._total
@@ -97,36 +102,36 @@ class Progress(object):
         jobs = '[%d job%s] ' % (self._active, 's' if self._active > 1 else '')
       else:
         jobs = ''
-      sys.stderr.write('%s\r%s: %2d%% %s(%d%s/%d%s)%s%s%s' % (
-          CSI_ERASE_LINE,
+      sys.stderr.write('\r%s: %2d%% %s(%d%s/%d%s)%s%s%s%s' % (
           self._title,
           p,
           jobs,
           self._done, self._units,
           self._total, self._units,
           ' ' if msg else '', msg,
+          CSI_ERASE_LINE_AFTER,
           '\n' if self._print_newline else ''))
       sys.stderr.flush()
 
   def end(self):
-    if _NOT_TTY or IsTrace() or not self._show:
+    if _NOT_TTY or IsTraceToStderr() or not self._show:
       return
 
     duration = duration_str(time() - self._start)
     if self._total <= 0:
-      sys.stderr.write('%s\r%s: %d, done in %s\n' % (
-          CSI_ERASE_LINE,
+      sys.stderr.write('\r%s: %d, done in %s%s\n' % (
           self._title,
           self._done,
-          duration))
+          duration,
+          CSI_ERASE_LINE_AFTER))
       sys.stderr.flush()
     else:
       p = (100 * self._done) / self._total
-      sys.stderr.write('%s\r%s: %3d%% (%d%s/%d%s), done in %s\n' % (
-          CSI_ERASE_LINE,
+      sys.stderr.write('\r%s: %3d%% (%d%s/%d%s), done in %s%s\n' % (
           self._title,
           p,
           self._done, self._units,
           self._total, self._units,
-          duration))
+          duration,
+          CSI_ERASE_LINE_AFTER))
       sys.stderr.flush()

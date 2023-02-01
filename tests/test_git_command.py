@@ -15,6 +15,7 @@
 """Unittests for the git_command.py module."""
 
 import re
+import os
 import unittest
 
 try:
@@ -24,6 +25,38 @@ except ImportError:
 
 from repo import git_command
 from repo import wrapper
+
+
+class GitCommandTest(unittest.TestCase):
+  """Tests the GitCommand class (via git_command.git)."""
+
+  def setUp(self):
+
+    def realpath_mock(val):
+      return val
+
+    mock.patch.object(os.path, 'realpath', side_effect=realpath_mock).start()
+
+  def tearDown(self):
+    mock.patch.stopall()
+
+  def test_alternative_setting_when_matching(self):
+    r = git_command._build_env(
+      objdir = os.path.join('zap', 'objects'),
+      gitdir = 'zap'
+    )
+
+    self.assertIsNone(r.get('GIT_ALTERNATE_OBJECT_DIRECTORIES'))
+    self.assertEqual(r.get('GIT_OBJECT_DIRECTORY'), os.path.join('zap', 'objects'))
+
+  def test_alternative_setting_when_different(self):
+    r = git_command._build_env(
+      objdir = os.path.join('wow', 'objects'),
+      gitdir = 'zap'
+    )
+
+    self.assertEqual(r.get('GIT_ALTERNATE_OBJECT_DIRECTORIES'), os.path.join('zap', 'objects'))
+    self.assertEqual(r.get('GIT_OBJECT_DIRECTORY'), os.path.join('wow', 'objects'))
 
 
 class GitCallUnitTest(unittest.TestCase):
@@ -84,7 +117,8 @@ class GitRequireTests(unittest.TestCase):
   """Test the git_require helper."""
 
   def setUp(self):
-    ver = wrapper.GitVersion(1, 2, 3, 4)
+    self.wrapper = wrapper.Wrapper()
+    ver = self.wrapper.GitVersion(1, 2, 3, 4)
     mock.patch.object(git_command.git, 'version_tuple', return_value=ver).start()
 
   def tearDown(self):

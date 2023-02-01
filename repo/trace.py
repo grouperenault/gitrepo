@@ -15,19 +15,43 @@
 """Logic for tracing repo interactions.
 
 Activated via `repo --trace ...` or `REPO_TRACE=1 repo ...`.
+
+Temporary: Tracing is always on. Set `REPO_TRACE=0` to turn off.
+To also include trace outputs in stderr do `repo --trace_to_stderr ...`
 """
 
 import sys
 import os
+import time
+from contextlib import ContextDecorator
+from pathlib import Path
+
+from repo import platform_utils
+from repo.repo_dir import getRepoDir
 
 # Env var to implicitly turn on tracing.
 REPO_TRACE = 'REPO_TRACE'
 
-_TRACE = os.environ.get(REPO_TRACE) == '1'
+# Temporarily set tracing to always on unless user expicitly sets to 0.
+_TRACE = os.environ.get(REPO_TRACE) != '0'
+_TRACE_TO_STDERR = False
+_TRACE_FILE = None
+_TRACE_FILE_NAME = 'TRACE_FILE'
+_MAX_SIZE = 70  # in mb
+_NEW_COMMAND_SEP = '+++++++++++++++NEW COMMAND+++++++++++++++++++'
+
+
+def IsTraceToStderr():
+  return _TRACE_TO_STDERR
 
 
 def IsTrace():
   return _TRACE
+
+
+def SetTraceToStderr():
+  global _TRACE_TO_STDERR
+  _TRACE_TO_STDERR = True
 
 
 def SetTrace():
@@ -35,6 +59,100 @@ def SetTrace():
   _TRACE = True
 
 
-def Trace(fmt, *args):
-  if IsTrace():
-    print(fmt % args, file=sys.stderr)
+def _SetTraceFile(quiet):
+  global _TRACE_FILE
+  _TRACE_FILE = _GetTraceFile(quiet)
+
+
+class Trace(ContextDecorator):
+
+  def _time(self):
+    """Generate nanoseconds of time in a py3.6 safe way"""
+    return int(time.time() * 1e+9)
+
+  def __init__(self, fmt, *args, first_trace=False, quiet=True):
+    """Initialize the object.
+
+    Args:
+      fmt: The format string for the trace.
+      *args: Arguments to pass to formatting.
+      first_trace: Whether this is the first trace of a `repo` invocation.
+      quiet: Whether to suppress notification of trace file location.
+    """
+    if not IsTrace():
+      return
+    self._trace_msg = fmt % args
+
+    if not _TRACE_FILE:
+      _SetTraceFile(quiet)
+
+    if first_trace:
+      _ClearOldTraces()
+      self._trace_msg = f'{_NEW_COMMAND_SEP} {self._trace_msg}'
+
+  def _write(self, msg):
+    if not os.path.exists(_TRACE_FILE):
+      return
+
+    with open(_TRACE_FILE, 'a') as f:
+      print(msg, file=f)
+
+  def __enter__(self):
+    if not IsTrace():
+      return self
+
+    print_msg = f'PID: {os.getpid()} START: {self._time()} :{self._trace_msg}\n'
+    self._write(print_msg)
+
+    if _TRACE_TO_STDERR:
+      print(print_msg, file=sys.stderr)
+
+    return self
+
+  def __exit__(self, *exc):
+    if not IsTrace():
+      return False
+
+    print_msg = f'PID: {os.getpid()} END: {self._time()} :{self._trace_msg}\n'
+    self._write(print_msg)
+
+    if _TRACE_TO_STDERR:
+      print(print_msg, file=sys.stderr)
+
+    return False
+
+
+def _GetTraceFile(quiet):
+  """Get the trace file or create one."""
+  # TODO: refactor to pass repodir to Trace.
+  # repo_dir = os.path.dirname(os.path.dirname(__file__))
+  repo_dir = getRepoDir()
+  trace_file = os.path.join(repo_dir, _TRACE_FILE_NAME)
+  trace_file_p = Path(trace_file)
+  if not trace_file_p.exists():
+    trace_file_p.parent.mkdir(parents=True, exist_ok=True)
+    trace_file_p.touch()
+
+  if not quiet:
+    print(f'Trace outputs in {trace_file}', file=sys.stderr)
+  return trace_file
+
+
+def _ClearOldTraces():
+  """Clear the oldest commands if trace file is too big.
+
+  Note: If the trace file contains output from two `repo`
+        commands that were running at the same time, this
+        will not work precisely.
+  """
+  if os.path.isfile(_TRACE_FILE):
+    while os.path.getsize(_TRACE_FILE) / (1024 * 1024) > _MAX_SIZE:
+      temp_file = _TRACE_FILE + '.tmp'
+      with open(_TRACE_FILE, 'r', errors='ignore') as fin:
+        with open(temp_file, 'w') as tf:
+          trace_lines = fin.readlines()
+          for i, l in enumerate(trace_lines):
+            if 'END:' in l and _NEW_COMMAND_SEP in l:
+              tf.writelines(trace_lines[i + 1:])
+              break
+      platform_utils.rename(temp_file, _TRACE_FILE)

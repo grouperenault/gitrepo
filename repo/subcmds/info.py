@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import optparse
+
 from repo.command import PagedCommand
 from repo.color import Coloring
 from repo.git_refs import R_M, R_HEADS
-import optparse
-
-
 
 class _Coloring(Coloring):
   def __init__(self, config):
@@ -65,8 +64,7 @@ class Info(PagedCommand):
       self.manifest = self.manifest.outer_client
     manifestConfig = self.manifest.manifestProject.config
     mergeBranch = manifestConfig.GetBranch("default").merge
-    manifestGroups = (manifestConfig.GetString('manifest.groups')
-                      or 'all,-notdefault')
+    manifestGroups = self.manifest.GetGroupsStr()
 
     self.heading("Manifest branch: ")
     if self.manifest.default.revisionExpr:

@@ -19,6 +19,7 @@ import tempfile
 import unittest
 
 from repo import git_config
+from repo import trace as repo_trace
 
 
 def fixture(*paths):
@@ -33,8 +34,15 @@ class GitConfigReadOnlyTests(unittest.TestCase):
   def setUp(self):
     """Create a GitConfig object using the test.gitconfig fixture.
     """
+
+    self.tempdirobj = tempfile.TemporaryDirectory(prefix='repo_tests')
+    repo_trace._TRACE_FILE = os.path.join(self.tempdirobj.name, 'TRACE_FILE_from_test')
+
     config_fixture = fixture('test.gitconfig')
     self.config = git_config.GitConfig(config_fixture)
+
+  def tearDown(self):
+    self.tempdirobj.cleanup()
 
   def test_GetString_with_empty_config_values(self):
     """
@@ -109,8 +117,14 @@ class GitConfigReadWriteTests(unittest.TestCase):
   """Read/write tests of the GitConfig class."""
 
   def setUp(self):
+    self.tempdirobj = tempfile.TemporaryDirectory(prefix='repo_tests')
+    repo_trace._TRACE_FILE = os.path.join(self.tempdirobj.name, 'TRACE_FILE_from_test')
+
     self.tmpfile = tempfile.NamedTemporaryFile()
     self.config = self.get_config()
+
+  def tearDown(self):
+    self.tempdirobj.cleanup()
 
   def get_config(self):
     """Get a new GitConfig instance."""
@@ -186,7 +200,3 @@ class GitConfigReadWriteTests(unittest.TestCase):
     for key, value in TESTS:
       self.assertEqual(sync_data[f'{git_config.SYNC_STATE_PREFIX}{key}'], value)
     self.assertTrue(sync_data[f'{git_config.SYNC_STATE_PREFIX}main.synctime'])
-
-
-if __name__ == '__main__':
-  unittest.main()

@@ -77,6 +77,13 @@ added to the respective list of users, and emails are sent to any
 new users.  Users passed as --reviewers must already be registered
 with the code review system, or the upload will fail.
 
+While most normal Gerrit options have dedicated command line options,
+direct access to the Gerit options is available via --push-options.
+This is useful when Gerrit has newer functionality that %prog doesn't
+yet support, or doesn't have plans to support.  See the Push Options
+documentation for more details:
+https://gerrit-review.googlesource.com/Documentation/user-upload.html#push_options
+
 # Configuration
 
 review.URL.autoupload:
@@ -189,6 +196,9 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
     p.add_option('-w', '--wip',
                  action='store_true', dest='wip', default=False,
                  help='upload as a work-in-progress change')
+    p.add_option('-r', '--ready',
+                 action='store_true', default=False,
+                 help='mark change as ready (clears work-in-progress setting)')
     p.add_option('-o', '--push-option',
                  type='string', action='append', dest='push_options',
                  default=[],
@@ -203,6 +213,12 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
     p.add_option('-y', '--yes',
                  default=False, action='store_true',
                  help='answer yes to all safe prompts')
+    p.add_option('--ignore-untracked-files',
+                 action='store_true', default=False,
+                 help='ignore untracked files in the working copy')
+    p.add_option('--no-ignore-untracked-files',
+                 dest='ignore_untracked_files', action='store_false',
+                 help='always ask about untracked files in the working copy')
     p.add_option('--no-cert-checks',
                  dest='validate_certs', action='store_false', default=True,
                  help='disable verifying ssl certs (unsafe)')
@@ -245,7 +261,7 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
         answer = sys.stdin.readline().strip().lower()
         answer = answer in ('y', 'yes', '1', 'true', 't')
 
-    if answer:
+    if not opt.yes and answer:
       if len(branch.commits) > UNUSUAL_COMMIT_THRESHOLD:
         answer = _ConfirmManyUploads()
 
@@ -261,8 +277,9 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
     script = []
     script.append('# Uncomment the branches to upload:')
     for project, avail in pending:
+      project_path = project.RelPath(local=opt.this_manifest_only)
       script.append('#')
-      script.append('# project %s/:' % project.RelPath(local=opt.this_manifest_only))
+      script.append(f'# project {project_path}/:')
 
       b = {}
       for branch in avail:
@@ -285,8 +302,8 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
           script.append('#         %s' % commit)
         b[name] = branch
 
-      projects[project.RelPath(local=opt.this_manifest_only)] = project
-      branches[project.name] = b
+      projects[project_path] = project
+      branches[project_path] = b
     script.append('')
 
     script = Editor.EditString("\n".join(script)).split("\n")
@@ -311,21 +328,23 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
         name = m.group(1)
         if not project:
           _die('project for branch %s not in script', name)
-        branch = branches[project.name].get(name)
+        project_path = project.RelPath(local=opt.this_manifest_only)
+        branch = branches[project_path].get(name)
         if not branch:
-          _die('branch %s not in %s', name, project.RelPath(local=opt.this_manifest_only))
+          _die('branch %s not in %s', name, project_path)
         todo.append(branch)
     if not todo:
       _die("nothing uncommented for upload")
 
-    many_commits = False
-    for branch in todo:
-      if len(branch.commits) > UNUSUAL_COMMIT_THRESHOLD:
-        many_commits = True
-        break
-    if many_commits:
-      if not _ConfirmManyUploads(multiple_branches=True):
-        _die("upload aborted by user")
+    if not opt.yes:
+      many_commits = False
+      for branch in todo:
+        if len(branch.commits) > UNUSUAL_COMMIT_THRESHOLD:
+          many_commits = True
+          break
+      if many_commits:
+        if not _ConfirmManyUploads(multiple_branches=True):
+          _die("upload aborted by user")
 
     self._UploadAndReport(opt, todo, people)
 
@@ -369,6 +388,10 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
 
         # Check if there are local changes that may have been forgotten
         changes = branch.project.UncommitedFiles()
+        if opt.ignore_untracked_files:
+          untracked = set(branch.project.UntrackedFiles())
+          changes = [x for x in changes if x not in untracked]
+
         if changes:
           key = 'review.%s.autoupload' % branch.project.remote.review
           answer = branch.project.config.GetBoolean(key)
@@ -420,12 +443,6 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
         labels = set(_ExpandCommaList(branch.project.config.GetString(key)))
         for label in opt.labels:
           labels.update(_ExpandCommaList(label))
-        # Basic sanity check on label syntax.
-        for label in labels:
-          if not re.match(r'^.+[+-][0-9]+$', label):
-            print('repo: error: invalid label syntax "%s": labels use forms '
-                  'like CodeReview+1 or Verified-1' % (label,), file=sys.stderr)
-            sys.exit(1)
 
         # Handle e-mail notifications.
         if opt.notify is False:
@@ -460,6 +477,7 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
                                private=opt.private,
                                notify=notify,
                                wip=opt.wip,
+                               ready=opt.ready,
                                dest_branch=destination,
                                validate_certs=opt.validate_certs,
                                push_options=opt.push_options)

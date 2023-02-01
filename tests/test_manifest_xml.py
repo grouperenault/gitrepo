@@ -17,14 +17,13 @@
 import os
 import platform
 import re
-import shutil
 import tempfile
 import unittest
 import xml.dom.minidom
 
 from repo import error
 from repo import manifest_xml
-
+from repo import trace as repo_trace
 
 # Invalid paths that we don't want in the filesystem.
 INVALID_FS_PATHS = (
@@ -92,7 +91,9 @@ class ManifestParseTestCase(unittest.TestCase):
   """TestCase for parsing manifests."""
 
   def setUp(self):
-    self.tempdir = tempfile.mkdtemp(prefix='repo_tests')
+    self.tempdirobj = tempfile.TemporaryDirectory(prefix='repo_tests')
+    self.tempdir = self.tempdirobj.name
+    repo_trace._TRACE_FILE = os.path.join(self.tempdir, 'TRACE_FILE_from_test')
     self.repodir = os.path.join(self.tempdir, '.repo')
     self.manifest_dir = os.path.join(self.repodir, 'manifests')
     self.manifest_file = os.path.join(
@@ -111,11 +112,11 @@ class ManifestParseTestCase(unittest.TestCase):
 """)
 
   def tearDown(self):
-    shutil.rmtree(self.tempdir, ignore_errors=True)
+    self.tempdirobj.cleanup()
 
   def getXmlManifest(self, data):
     """Helper to initialize a manifest for testing."""
-    with open(self.manifest_file, 'w') as fp:
+    with open(self.manifest_file, 'w', encoding="utf-8") as fp:
       fp.write(data)
     return manifest_xml.XmlManifest(self.repodir, self.manifest_file)
 
@@ -252,6 +253,37 @@ class XmlManifestTests(ManifestParseTestCase):
         '<manifest></manifest>')
     self.assertEqual(manifest.ToDict(), {})
 
+  def test_toxml_omit_local(self):
+    """Does not include local_manifests projects when omit_local=True."""
+    manifest = self.getXmlManifest(
+        '<?xml version="1.0" encoding="UTF-8"?><manifest>'
+        '<remote name="a" fetch=".."/><default remote="a" revision="r"/>'
+        '<project name="p" groups="local::me"/>'
+        '<project name="q"/>'
+        '<project name="r" groups="keep"/>'
+        '</manifest>')
+    self.assertEqual(
+        sort_attributes(manifest.ToXml(omit_local=True).toxml()),
+        '<?xml version="1.0" ?><manifest>'
+        '<remote fetch=".." name="a"/><default remote="a" revision="r"/>'
+        '<project name="q"/><project groups="keep" name="r"/></manifest>')
+
+  def test_toxml_with_local(self):
+    """Does include local_manifests projects when omit_local=False."""
+    manifest = self.getXmlManifest(
+        '<?xml version="1.0" encoding="UTF-8"?><manifest>'
+        '<remote name="a" fetch=".."/><default remote="a" revision="r"/>'
+        '<project name="p" groups="local::me"/>'
+        '<project name="q"/>'
+        '<project name="r" groups="keep"/>'
+        '</manifest>')
+    self.assertEqual(
+        sort_attributes(manifest.ToXml(omit_local=False).toxml()),
+        '<?xml version="1.0" ?><manifest>'
+        '<remote fetch=".." name="a"/><default remote="a" revision="r"/>'
+        '<project groups="local::me" name="p"/>'
+        '<project name="q"/><project groups="keep" name="r"/></manifest>')
+
   def test_repo_hooks(self):
     """Check repo-hooks settings."""
     manifest = self.getXmlManifest("""
@@ -289,8 +321,8 @@ class XmlManifestTests(ManifestParseTestCase):
   <x-custom-tag>X tags are always ignored</x-custom-tag>
 </manifest>
 """)
-    self.assertEqual(manifest.superproject['name'], 'superproject')
-    self.assertEqual(manifest.superproject['remote'].name, 'test-remote')
+    self.assertEqual(manifest.superproject.name, 'superproject')
+    self.assertEqual(manifest.superproject.remote.name, 'test-remote')
     self.assertEqual(
         sort_attributes(manifest.ToXml().toxml()),
         '<?xml version="1.0" ?><manifest>'
@@ -395,7 +427,7 @@ class IncludeElementTests(ManifestParseTestCase):
     def parse(name):
       name = self.encodeXmlAttr(name)
       # Setup target of the include.
-      with open(os.path.join(self.manifest_dir, 'target.xml'), 'w') as fp:
+      with open(os.path.join(self.manifest_dir, 'target.xml'), 'w', encoding="utf-8") as fp:
         fp.write(f'<manifest><include name="{name}"/></manifest>')
 
       manifest = self.getXmlManifest("""
@@ -486,22 +518,22 @@ class ProjectElementTests(ManifestParseTestCase):
 """)
 
     manifest = parse('a/path/', 'foo')
-    self.assertEqual(manifest.projects[0].gitdir,
-                     os.path.join(self.tempdir, '.repo/projects/foo.git'))
-    self.assertEqual(manifest.projects[0].objdir,
-                     os.path.join(self.tempdir, '.repo/project-objects/a/path.git'))
+    self.assertEqual(os.path.normpath(manifest.projects[0].gitdir),
+                     os.path.join(self.tempdir, '.repo', 'projects', 'foo.git'))
+    self.assertEqual(os.path.normpath(manifest.projects[0].objdir),
+                     os.path.join(self.tempdir, '.repo', 'project-objects', 'a', 'path.git'))
 
     manifest = parse('a/path', 'foo/')
-    self.assertEqual(manifest.projects[0].gitdir,
-                     os.path.join(self.tempdir, '.repo/projects/foo.git'))
-    self.assertEqual(manifest.projects[0].objdir,
-                     os.path.join(self.tempdir, '.repo/project-objects/a/path.git'))
+    self.assertEqual(os.path.normpath(manifest.projects[0].gitdir),
+                     os.path.join(self.tempdir, '.repo', 'projects', 'foo.git'))
+    self.assertEqual(os.path.normpath(manifest.projects[0].objdir),
+                     os.path.join(self.tempdir, '.repo', 'project-objects', 'a', 'path.git'))
 
     manifest = parse('a/path', 'foo//////')
-    self.assertEqual(manifest.projects[0].gitdir,
-                     os.path.join(self.tempdir, '.repo/projects/foo.git'))
-    self.assertEqual(manifest.projects[0].objdir,
-                     os.path.join(self.tempdir, '.repo/project-objects/a/path.git'))
+    self.assertEqual(os.path.normpath(manifest.projects[0].gitdir),
+                     os.path.join(self.tempdir, '.repo', 'projects', 'foo.git'))
+    self.assertEqual(os.path.normpath(manifest.projects[0].objdir),
+                     os.path.join(self.tempdir, '.repo', 'project-objects', 'a', 'path.git'))
 
   def test_toplevel_path(self):
     """Check handling of path=. specially."""
@@ -518,8 +550,8 @@ class ProjectElementTests(ManifestParseTestCase):
 
     for path in ('.', './', './/', './//'):
       manifest = parse('server/path', path)
-      self.assertEqual(manifest.projects[0].gitdir,
-                       os.path.join(self.tempdir, '.repo/projects/..git'))
+      self.assertEqual(os.path.normpath(manifest.projects[0].gitdir),
+                       os.path.join(self.tempdir, '.repo', 'projects', '..git'))
 
   def test_bad_path_name_checks(self):
     """Check handling of bad path & name attributes."""
@@ -545,7 +577,7 @@ class ProjectElementTests(ManifestParseTestCase):
       parse('', 'ok')
 
     for path in INVALID_FS_PATHS:
-      if not path or path.endswith('/'):
+      if not path or path.endswith('/') or path.endswith(os.path.sep):
         continue
 
       with self.assertRaises(error.ManifestInvalidPathError):
@@ -569,10 +601,10 @@ class SuperProjectElementTests(ManifestParseTestCase):
   <superproject name="superproject"/>
 </manifest>
 """)
-    self.assertEqual(manifest.superproject['name'], 'superproject')
-    self.assertEqual(manifest.superproject['remote'].name, 'test-remote')
-    self.assertEqual(manifest.superproject['remote'].url, 'http://localhost/superproject')
-    self.assertEqual(manifest.superproject['revision'], 'refs/heads/main')
+    self.assertEqual(manifest.superproject.name, 'superproject')
+    self.assertEqual(manifest.superproject.remote.name, 'test-remote')
+    self.assertEqual(manifest.superproject.remote.url, 'http://localhost/superproject')
+    self.assertEqual(manifest.superproject.revision, 'refs/heads/main')
     self.assertEqual(
         sort_attributes(manifest.ToXml().toxml()),
         '<?xml version="1.0" ?><manifest>'
@@ -591,10 +623,10 @@ class SuperProjectElementTests(ManifestParseTestCase):
   <superproject name="superproject" revision="refs/heads/stable" />
 </manifest>
 """)
-    self.assertEqual(manifest.superproject['name'], 'superproject')
-    self.assertEqual(manifest.superproject['remote'].name, 'test-remote')
-    self.assertEqual(manifest.superproject['remote'].url, 'http://localhost/superproject')
-    self.assertEqual(manifest.superproject['revision'], 'refs/heads/stable')
+    self.assertEqual(manifest.superproject.name, 'superproject')
+    self.assertEqual(manifest.superproject.remote.name, 'test-remote')
+    self.assertEqual(manifest.superproject.remote.url, 'http://localhost/superproject')
+    self.assertEqual(manifest.superproject.revision, 'refs/heads/stable')
     self.assertEqual(
         sort_attributes(manifest.ToXml().toxml()),
         '<?xml version="1.0" ?><manifest>'
@@ -613,10 +645,10 @@ class SuperProjectElementTests(ManifestParseTestCase):
   <superproject name="superproject" revision="refs/heads/stable" />
 </manifest>
 """)
-    self.assertEqual(manifest.superproject['name'], 'superproject')
-    self.assertEqual(manifest.superproject['remote'].name, 'test-remote')
-    self.assertEqual(manifest.superproject['remote'].url, 'http://localhost/superproject')
-    self.assertEqual(manifest.superproject['revision'], 'refs/heads/stable')
+    self.assertEqual(manifest.superproject.name, 'superproject')
+    self.assertEqual(manifest.superproject.remote.name, 'test-remote')
+    self.assertEqual(manifest.superproject.remote.url, 'http://localhost/superproject')
+    self.assertEqual(manifest.superproject.revision, 'refs/heads/stable')
     self.assertEqual(
         sort_attributes(manifest.ToXml().toxml()),
         '<?xml version="1.0" ?><manifest>'
@@ -635,10 +667,10 @@ class SuperProjectElementTests(ManifestParseTestCase):
   <superproject name="superproject" revision="refs/heads/stable" />
 </manifest>
 """)
-    self.assertEqual(manifest.superproject['name'], 'superproject')
-    self.assertEqual(manifest.superproject['remote'].name, 'test-remote')
-    self.assertEqual(manifest.superproject['remote'].url, 'http://localhost/superproject')
-    self.assertEqual(manifest.superproject['revision'], 'refs/heads/stable')
+    self.assertEqual(manifest.superproject.name, 'superproject')
+    self.assertEqual(manifest.superproject.remote.name, 'test-remote')
+    self.assertEqual(manifest.superproject.remote.url, 'http://localhost/superproject')
+    self.assertEqual(manifest.superproject.revision, 'refs/heads/stable')
     self.assertEqual(
         sort_attributes(manifest.ToXml().toxml()),
         '<?xml version="1.0" ?><manifest>'
@@ -657,10 +689,10 @@ class SuperProjectElementTests(ManifestParseTestCase):
   <superproject name="platform/superproject" remote="superproject-remote"/>
 </manifest>
 """)
-    self.assertEqual(manifest.superproject['name'], 'platform/superproject')
-    self.assertEqual(manifest.superproject['remote'].name, 'superproject-remote')
-    self.assertEqual(manifest.superproject['remote'].url, 'http://localhost/platform/superproject')
-    self.assertEqual(manifest.superproject['revision'], 'refs/heads/main')
+    self.assertEqual(manifest.superproject.name, 'platform/superproject')
+    self.assertEqual(manifest.superproject.remote.name, 'superproject-remote')
+    self.assertEqual(manifest.superproject.remote.url, 'http://localhost/platform/superproject')
+    self.assertEqual(manifest.superproject.revision, 'refs/heads/main')
     self.assertEqual(
         sort_attributes(manifest.ToXml().toxml()),
         '<?xml version="1.0" ?><manifest>'
@@ -679,9 +711,9 @@ class SuperProjectElementTests(ManifestParseTestCase):
   <superproject name="superproject" remote="default-remote"/>
 </manifest>
 """)
-    self.assertEqual(manifest.superproject['name'], 'superproject')
-    self.assertEqual(manifest.superproject['remote'].name, 'default-remote')
-    self.assertEqual(manifest.superproject['revision'], 'refs/heads/main')
+    self.assertEqual(manifest.superproject.name, 'superproject')
+    self.assertEqual(manifest.superproject.remote.name, 'default-remote')
+    self.assertEqual(manifest.superproject.revision, 'refs/heads/main')
     self.assertEqual(
         sort_attributes(manifest.ToXml().toxml()),
         '<?xml version="1.0" ?><manifest>'
@@ -843,3 +875,27 @@ class ExtendProjectElementTests(ManifestParseTestCase):
     else:
       self.assertEqual(manifest.projects[0].relpath, 'bar')
       self.assertEqual(manifest.projects[1].relpath, 'y')
+
+  def test_extend_project_dest_branch(self):
+    manifest = self.getXmlManifest("""
+<manifest>
+  <remote name="default-remote" fetch="http://localhost" />
+  <default remote="default-remote" revision="refs/heads/main" dest-branch="foo" />
+  <project name="myproject" />
+  <extend-project name="myproject" dest-branch="bar" />
+</manifest>
+""")
+    self.assertEqual(len(manifest.projects), 1)
+    self.assertEqual(manifest.projects[0].dest_branch, 'bar')
+
+  def test_extend_project_upstream(self):
+    manifest = self.getXmlManifest("""
+<manifest>
+  <remote name="default-remote" fetch="http://localhost" />
+  <default remote="default-remote" revision="refs/heads/main" />
+  <project name="myproject" />
+  <extend-project name="myproject" upstream="bar" />
+</manifest>
+""")
+    self.assertEqual(len(manifest.projects), 1)
+    self.assertEqual(manifest.projects[0].upstream, 'bar')

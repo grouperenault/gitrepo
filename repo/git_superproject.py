@@ -18,7 +18,7 @@ For more information on superproject, check out:
 https://en.wikibooks.org/wiki/Git/Submodules_and_Superprojects
 
 Examples:
-  superproject = Superproject()
+  superproject = Superproject(manifest, name, remote, revision)
   UpdateProjectsResult = superproject.UpdateProjectsRevisionId(projects)
 """
 
@@ -31,8 +31,6 @@ from typing import NamedTuple
 
 from repo.git_command import git_require, GitCommand
 from repo.git_config import RepoConfig
-from repo.git_refs import R_HEADS
-from repo.manifest_xml import LOCAL_MANIFEST_GROUP_PREFIX
 
 _SUPERPROJECT_GIT_NAME = 'superproject.git'
 _SUPERPROJECT_MANIFEST_NAME = 'superproject_override.xml'
@@ -72,41 +70,49 @@ class Superproject(object):
   lookup of commit ids for all projects. It contains _project_commit_ids which
   is a dictionary with project/commit id entries.
   """
-  def __init__(self, manifest, repodir, git_event_log,
-               superproject_dir='exp-superproject', quiet=False, print_messages=False):
+  def __init__(self, manifest, name, remote, revision,
+               superproject_dir='exp-superproject'):
     """Initializes superproject.
 
     Args:
       manifest: A Manifest object that is to be written to a file.
-      repodir: Path to the .repo/ dir for holding all internal checkout state.
-          It must be in the top directory of the repo client checkout.
-      git_event_log: A git trace2 event log to log events.
-      superproject_dir: Relative path under |repodir| to checkout superproject.
-      quiet:  If True then only print the progress messages.
-      print_messages: if True then print error/warning messages.
+      name: The unique name of the superproject
+      remote: The RemoteSpec for the remote.
+      revision: The name of the git branch to track.
+      superproject_dir: Relative path under |manifest.subdir| to checkout
+          superproject.
     """
     self._project_commit_ids = None
     self._manifest = manifest
-    self._git_event_log = git_event_log
-    self._quiet = quiet
-    self._print_messages = print_messages
-    self._branch = manifest.branch
-    self._repodir = os.path.abspath(repodir)
+    self.name = name
+    self.remote = remote
+    self.revision = self._branch = revision
+    self._repodir = manifest.repodir
     self._superproject_dir = superproject_dir
     self._superproject_path = manifest.SubmanifestInfoDir(manifest.path_prefix,
                                                           superproject_dir)
     self._manifest_path = os.path.join(self._superproject_path,
                                        _SUPERPROJECT_MANIFEST_NAME)
-    git_name = ''
-    if self._manifest.superproject:
-      remote = self._manifest.superproject['remote']
-      git_name = hashlib.md5(remote.name.encode('utf8')).hexdigest() + '-'
-      self._branch = self._manifest.superproject['revision']
-      self._remote_url = remote.url
-    else:
-      self._remote_url = None
+    git_name = hashlib.md5(remote.name.encode('utf8')).hexdigest() + '-'
+    self._remote_url = remote.url
     self._work_git_name = git_name + _SUPERPROJECT_GIT_NAME
     self._work_git = os.path.join(self._superproject_path, self._work_git_name)
+
+    # The following are command arguemnts, rather than superproject attributes,
+    # and were included here originally.  They should eventually become
+    # arguments that are passed down from the public methods, instead of being
+    # treated as attributes.
+    self._git_event_log = None
+    self._quiet = False
+    self._print_messages = False
+
+  def SetQuiet(self, value):
+    """Set the _quiet attribute."""
+    self._quiet = value
+
+  def SetPrintMessages(self, value):
+    """Set the _print_messages attribute."""
+    self._print_messages = value
 
   @property
   def project_commit_ids(self):
@@ -216,19 +222,23 @@ class Superproject(object):
                        f'return code: {retval}, stderr: {p.stderr}')
     return data
 
-  def Sync(self):
+  def Sync(self, git_event_log):
     """Gets a local copy of a superproject for the manifest.
+
+    Args:
+      git_event_log: an EventLog, for git tracing.
 
     Returns:
       SyncResult
     """
+    self._git_event_log = git_event_log
     if not self._manifest.superproject:
       self._LogWarning(f'superproject tag is not defined in manifest: '
                        f'{self._manifest.manifestFile}')
       return SyncResult(False, False)
 
-    print('NOTICE: --use-superproject is in beta; report any issues to the '
-          'address described in `repo version`', file=sys.stderr)
+    _PrintBetaNotice()
+
     should_exit = True
     if not self._remote_url:
       self._LogWarning(f'superproject URL is not defined in manifest: '
@@ -249,7 +259,7 @@ class Superproject(object):
     Returns:
       CommitIdsResult
     """
-    sync_result = self.Sync()
+    sync_result = self.Sync(self._git_event_log)
     if not sync_result.success:
       return CommitIdsResult(None, sync_result.fatal)
 
@@ -284,7 +294,8 @@ class Superproject(object):
     if not os.path.exists(self._superproject_path):
       self._LogWarning(f'missing superproject directory: {self._superproject_path}')
       return None
-    manifest_str = self._manifest.ToXml(groups=self._manifest.GetGroupsStr()).toxml()
+    manifest_str = self._manifest.ToXml(groups=self._manifest.GetGroupsStr(),
+                                        omit_local=True).toxml()
     manifest_path = self._manifest_path
     try:
       with open(manifest_path, 'w', encoding='utf-8') as fp:
@@ -314,15 +325,17 @@ class Superproject(object):
     # Skip the project if it comes from the local manifest.
     return project.manifest.IsFromLocalManifest(project)
 
-  def UpdateProjectsRevisionId(self, projects):
+  def UpdateProjectsRevisionId(self, projects, git_event_log):
     """Update revisionId of every project in projects with the commit id.
 
     Args:
-      projects: List of projects whose revisionId needs to be updated.
+      projects: a list of projects whose revisionId needs to be updated.
+      git_event_log: an EventLog, for git tracing.
 
     Returns:
       UpdateProjectsResult
     """
+    self._git_event_log = git_event_log
     commit_ids_result = self._GetAllProjectsCommitIds()
     commit_ids = commit_ids_result.commit_ids
     if not commit_ids:
@@ -350,6 +363,13 @@ class Superproject(object):
 
     manifest_path = self._WriteManifestFile()
     return UpdateProjectsResult(manifest_path, False)
+
+
+@functools.lru_cache(maxsize=10)
+def _PrintBetaNotice():
+  """Print the notice of beta status."""
+  print('NOTICE: --use-superproject is in beta; report any issues to the '
+        'address described in `repo version`', file=sys.stderr)
 
 
 @functools.lru_cache(maxsize=None)
@@ -396,21 +416,37 @@ def _UseSuperprojectFromConfiguration():
   return False
 
 
-def PrintMessages(opt, manifest):
-  """Returns a boolean if error/warning messages are to be printed."""
-  return opt.use_superproject is not None or manifest.superproject
+def PrintMessages(use_superproject, manifest):
+  """Returns a boolean if error/warning messages are to be printed.
+
+  Args:
+    use_superproject: option value from optparse.
+    manifest: manifest to use.
+  """
+  return use_superproject is not None or bool(manifest.superproject)
 
 
-def UseSuperproject(opt, manifest):
-  """Returns a boolean if use-superproject option is enabled."""
+def UseSuperproject(use_superproject, manifest):
+  """Returns a boolean if use-superproject option is enabled.
 
-  if opt.use_superproject is not None:
-    return opt.use_superproject
+  Args:
+    use_superproject: option value from optparse.
+    manifest: manifest to use.
+
+  Returns:
+    Whether the superproject should be used.
+  """
+
+  if not manifest.superproject:
+    # This (sub) manifest does not have a superproject definition.
+    return False
+  elif use_superproject is not None:
+    return use_superproject
   else:
-    client_value = manifest.manifestProject.config.GetBoolean('repo.superproject')
+    client_value = manifest.manifestProject.use_superproject
     if client_value is not None:
       return client_value
-    else:
-      if not manifest.superproject:
-        return False
+    elif manifest.superproject:
       return _UseSuperprojectFromConfiguration()
+    else:
+      return False
