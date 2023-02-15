@@ -3978,7 +3978,11 @@ class RepoSetupPyProject:
     self.bare_git = _FakeBareGit()
     self.config = GitConfig.ForUser()
 
-  def GetRemote(self, name):
+  def GetRemote(self, name=None):
+    """Get the configuration for a single remote.
+
+    Defaults to the current project's remote.
+    """
     return self.remote
 
   def PreSync(self):
