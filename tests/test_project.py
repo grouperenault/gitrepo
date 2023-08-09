@@ -27,7 +27,6 @@ from repo import git_command
 from repo import git_config
 from repo import platform_utils
 from repo import project
-from repo import trace as repo_trace
 
 
 @contextlib.contextmanager
@@ -65,13 +64,6 @@ class FakeProject(object):
 
 class ReviewableBranchTests(unittest.TestCase):
   """Check ReviewableBranch behavior."""
-
-  def setUp(self):
-    self.tempdirobj = tempfile.TemporaryDirectory(prefix='repo_tests')
-    repo_trace._TRACE_FILE = os.path.join(self.tempdirobj.name, 'TRACE_FILE_from_test')
-
-  def tearDown(self):
-    self.tempdirobj.cleanup()
 
   def test_smoke(self):
     """A quick run through everything."""
@@ -114,7 +106,7 @@ class ReviewableBranchTests(unittest.TestCase):
 class CopyLinkTestCase(unittest.TestCase):
   """TestCase for stub repo client checkouts.
 
-  It'll have a layout like:
+  It'll have a layout like this:
     tempdir/          # self.tempdir
       checkout/       # self.topdir
         git-project/  # self.worktree
@@ -418,8 +410,6 @@ class ManifestPropertiesFetchedCorrectly(unittest.TestCase):
   """Ensure properties are fetched properly."""
 
   def setUpManifest(self, tempdir):
-    repo_trace._TRACE_FILE = os.path.join(tempdir, 'TRACE_FILE_from_test')
-
     repodir = os.path.join(tempdir, '.repo')
     manifest_dir = os.path.join(repodir, 'manifests')
     manifest_file = os.path.join(

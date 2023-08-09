@@ -71,8 +71,6 @@ def _key(name):
 class GitConfig(object):
   _ForUser = None
 
-  _USER_CONFIG = '~/.gitconfig'
-
   _ForSystem = None
   _SYSTEM_CONFIG = '/etc/gitconfig'
 
@@ -85,8 +83,12 @@ class GitConfig(object):
   @classmethod
   def ForUser(cls):
     if cls._ForUser is None:
-      cls._ForUser = cls(configfile=os.path.expanduser(cls._USER_CONFIG))
+      cls._ForUser = cls(configfile=cls._getUserConfig())
     return cls._ForUser
+
+  @staticmethod
+  def _getUserConfig():
+    return os.path.expanduser('~/.gitconfig')
 
   @classmethod
   def ForRepository(cls, gitdir, defaults=None):
@@ -190,7 +192,7 @@ class GitConfig(object):
     if v in ('false', 'no'):
       return False
     print(f"warning: expected {name} to represent a boolean, got {v} instead",
-            file=sys.stderr)
+          file=sys.stderr)
     return None
 
   def SetBoolean(self, name, value):
@@ -199,7 +201,7 @@ class GitConfig(object):
       value = 'true' if value else 'false'
     self.SetString(name, value)
 
-  def GetString(self, name: str, all_keys: bool = False) -> Union[str,  None]:
+  def GetString(self, name: str, all_keys: bool = False) -> Union[str, None]:
     """Get the first value for a key, or None if it is not defined.
 
        This configuration file is used first, if the key is not
@@ -417,7 +419,10 @@ class GitConfig(object):
 class RepoConfig(GitConfig):
   """User settings for repo itself."""
 
-  _USER_CONFIG = '~/.repoconfig/config'
+  @staticmethod
+  def _getUserConfig():
+    repo_config_dir = os.getenv('REPO_CONFIG_DIR', os.path.expanduser('~'))
+    return os.path.join(repo_config_dir, '.repoconfig/config')
 
 
 class RefSpec(object):

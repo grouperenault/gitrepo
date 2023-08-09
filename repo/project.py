@@ -53,6 +53,7 @@ class SyncNetworkHalfResult(NamedTuple):
   # commit already present.
   remote_fetched: bool
 
+
 # Maximum sleep time allowed during retries.
 MAXIMUM_RETRY_SLEEP_SEC = 3600.0
 # +-10% random jitter is added to each Fetches retry sleep duration.
@@ -61,6 +62,7 @@ RETRY_JITTER_PERCENT = 0.1
 # Whether to use alternates.  Switching back and forth is *NOT* supported.
 # TODO(vapier): Remove knob once behavior is verified.
 _ALTERNATES = os.environ.get('REPO_USE_ALTERNATES') == '1'
+
 
 def _lwrite(path, content):
   lock = '%s.lock' % path
@@ -3414,6 +3416,7 @@ class RepoProject(MetaProject):
     except OSError:
       return 0
 
+
 class ManifestProject(MetaProject):
   """The MetaProject for manifests."""
 
@@ -3844,11 +3847,12 @@ class ManifestProject(MetaProject):
       self.config.SetBoolean('repo.superproject', use_superproject)
 
     if not standalone_manifest:
-      if not self.Sync_NetworkHalf(
+      success = self.Sync_NetworkHalf(
           is_new=is_new, quiet=not verbose, verbose=verbose,
           clone_bundle=clone_bundle, current_branch_only=current_branch_only,
           tags=tags, submodules=submodules, clone_filter=clone_filter,
-          partial_clone_exclude=self.manifest.PartialCloneExclude).success:
+          partial_clone_exclude=self.manifest.PartialCloneExclude).success
+      if not success:
         r = self.GetRemote()
         print('fatal: cannot obtain manifest %s' % r.url, file=sys.stderr)
 
@@ -3927,12 +3931,14 @@ class ManifestProject(MetaProject):
     if git_superproject.UseSuperproject(use_superproject, self.manifest):
       sync_result = self.manifest.superproject.Sync(git_event_log)
       if not sync_result.success:
-        print('warning: git update of superproject for '
-              f'{self.manifest.path_prefix} failed, repo sync will not use '
-              'superproject to fetch source; while this error is not fatal, '
-              'and you can continue to run repo sync, please run repo init '
-              'with the --no-use-superproject option to stop seeing this '
-              'warning', file=sys.stderr)
+        submanifest = ''
+        if self.manifest.path_prefix:
+          submanifest = f'for {self.manifest.path_prefix} '
+        print(f'warning: git update of superproject {submanifest}failed, repo '
+              'sync will not use superproject to fetch source; while this '
+              'error is not fatal, and you can continue to run repo sync, '
+              'please run repo init with the --no-use-superproject option to '
+              'stop seeing this warning', file=sys.stderr)
         if sync_result.fatal and use_superproject is not None:
           return False
 
