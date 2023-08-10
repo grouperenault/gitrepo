@@ -23,7 +23,6 @@ import xml.dom.minidom
 
 from repo import error
 from repo import manifest_xml
-from repo import trace as repo_trace
 
 # Invalid paths that we don't want in the filesystem.
 INVALID_FS_PATHS = (
@@ -93,7 +92,6 @@ class ManifestParseTestCase(unittest.TestCase):
   def setUp(self):
     self.tempdirobj = tempfile.TemporaryDirectory(prefix='repo_tests')
     self.tempdir = self.tempdirobj.name
-    repo_trace._TRACE_FILE = os.path.join(self.tempdir, 'TRACE_FILE_from_test')
     self.repodir = os.path.join(self.tempdir, '.repo')
     self.manifest_dir = os.path.join(self.repodir, 'manifests')
     self.manifest_file = os.path.join(

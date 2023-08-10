@@ -17,27 +17,62 @@ import functools
 import optparse
 import re
 import sys
+from typing import List
 
-from repo.command import InteractiveCommand, DEFAULT_LOCAL_JOBS
+from repo.command import DEFAULT_LOCAL_JOBS, InteractiveCommand
 from repo.editor import Editor
 from repo.error import UploadError
 from repo.git_command import GitCommand
 from repo.git_refs import R_HEADS
 from repo.hooks import RepoHook
+from repo.project import ReviewableBranch
 
-UNUSUAL_COMMIT_THRESHOLD = 5
+
+_DEFAULT_UNUSUAL_COMMIT_THRESHOLD = 5
 
 
-def _ConfirmManyUploads(multiple_branches=False):
-  if multiple_branches:
-    print('ATTENTION: One or more branches has an unusually high number '
-          'of commits.')
-  else:
-    print('ATTENTION: You are uploading an unusually high number of commits.')
-  print('YOU PROBABLY DO NOT MEAN TO DO THIS. (Did you rebase across '
-        'branches?)')
-  answer = input("If you are sure you intend to do this, type 'yes': ").strip()
-  return answer == "yes"
+def _VerifyPendingCommits(branches: List[ReviewableBranch]) -> bool:
+  """Perform basic safety checks on the given set of branches.
+
+  Ensures that each branch does not have a "large" number of commits
+  and, if so, prompts the user to confirm they want to proceed with
+  the upload.
+
+  Returns true if all branches pass the safety check or the user
+  confirmed. Returns false if the upload should be aborted.
+  """
+
+  # Determine if any branch has a suspicious number of commits.
+  many_commits = False
+  for branch in branches:
+    # Get the user's unusual threshold for the branch.
+    #
+    # Each branch may be configured to have a different threshold.
+    remote = branch.project.GetBranch(branch.name).remote
+    key = f'review.{remote.review}.uploadwarningthreshold'
+    threshold = branch.project.config.GetInt(key)
+    if threshold is None:
+      threshold = _DEFAULT_UNUSUAL_COMMIT_THRESHOLD
+
+    # If the branch has more commits than the threshold, show a warning.
+    if len(branch.commits) > threshold:
+      many_commits = True
+      break
+
+  # If any branch has many commits, prompt the user.
+  if many_commits:
+    if len(branches) > 1:
+      print('ATTENTION: One or more branches has an unusually high number '
+            'of commits.')
+    else:
+      print('ATTENTION: You are uploading an unusually high number of commits.')
+    print('YOU PROBABLY DO NOT MEAN TO DO THIS. (Did you rebase across '
+          'branches?)')
+    answer = input(
+        "If you are sure you intend to do this, type 'yes': ").strip()
+    return answer == 'yes'
+
+  return True
 
 
 def _die(fmt, *args):
@@ -148,6 +183,13 @@ review.URL.uploadnotify:
 Control e-mail notifications when uploading.
 https://gerrit-review.googlesource.com/Documentation/user-upload.html#notify
 
+review.URL.uploadwarningthreshold:
+
+Repo will warn you if you are attempting to upload a large number
+of commits in one or more branches. By default, the threshold
+is five commits. This option allows you to override the warning
+threshold to a different value.
+
 # References
 
 Gerrit Code Review:  https://www.gerritcodereview.com/
@@ -251,24 +293,21 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
       for commit in commit_list:
         print('         %s' % commit)
 
-      print('to %s (y/N)? ' % remote.review, end='')
-      # TODO: When we require Python 3, use flush=True w/print above.
-      sys.stdout.flush()
+      print('to %s (y/N)? ' % remote.review, end='', flush=True)
       if opt.yes:
         print('<--yes>')
         answer = True
       else:
         answer = sys.stdin.readline().strip().lower()
         answer = answer in ('y', 'yes', '1', 'true', 't')
+      if not answer:
+        _die("upload aborted by user")
 
-    if not opt.yes and answer:
-      if len(branch.commits) > UNUSUAL_COMMIT_THRESHOLD:
-        answer = _ConfirmManyUploads()
-
-    if answer:
-      self._UploadAndReport(opt, [branch], people)
-    else:
+    # Perform some basic safety checks prior to uploading.
+    if not opt.yes and not _VerifyPendingCommits([branch]):
       _die("upload aborted by user")
+
+    self._UploadAndReport(opt, [branch], people)
 
   def _MultipleBranches(self, opt, pending, people):
     projects = {}
@@ -336,15 +375,9 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
     if not todo:
       _die("nothing uncommented for upload")
 
-    if not opt.yes:
-      many_commits = False
-      for branch in todo:
-        if len(branch.commits) > UNUSUAL_COMMIT_THRESHOLD:
-          many_commits = True
-          break
-      if many_commits:
-        if not _ConfirmManyUploads(multiple_branches=True):
-          _die("upload aborted by user")
+    # Perform some basic safety checks prior to uploading.
+    if not opt.yes and not _VerifyPendingCommits(todo):
+      _die("upload aborted by user")
 
     self._UploadAndReport(opt, todo, people)
 
@@ -402,9 +435,7 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
             print('Uncommitted changes in %s (did you forget to amend?):'
                   % branch.project.name)
             print('\n'.join(changes))
-            print('Continue uploading? (y/N) ', end='')
-            # TODO: When we require Python 3, use flush=True w/print above.
-            sys.stdout.flush()
+            print('Continue uploading? (y/N) ', end='', flush=True)
             if opt.yes:
               print('<--yes>')
               a = 'yes'
@@ -453,19 +484,24 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
 
         destination = opt.dest_branch or branch.project.dest_branch
 
-        # Make sure our local branch is not setup to track a different remote branch
-        merge_branch = self._GetMergeBranch(branch.project)
-        if destination:
+        if branch.project.dest_branch and not opt.dest_branch:
+
+          merge_branch = self._GetMergeBranch(
+            branch.project, local_branch=branch.name)
+
           full_dest = destination
           if not full_dest.startswith(R_HEADS):
             full_dest = R_HEADS + full_dest
 
-          if not opt.dest_branch and merge_branch and merge_branch != full_dest:
-            print('merge branch %s does not match destination branch %s'
-                  % (merge_branch, full_dest))
+          # If the merge branch of the local branch is different from the
+          # project's revision AND destination, this might not be intentional.
+          if (merge_branch and merge_branch != branch.project.revisionExpr
+              and merge_branch != full_dest):
+            print(f'For local branch {branch.name}: merge branch '
+                  f'{merge_branch} does not match destination branch '
+                  f'{destination}')
             print('skipping upload.')
-            print('Please use `--destination %s` if this is intentional'
-                  % destination)
+            print(f'Please use `--destination {destination}` if this is intentional')
             branch.uploaded = False
             continue
 
@@ -515,13 +551,14 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
     if have_errors:
       sys.exit(1)
 
-  def _GetMergeBranch(self, project):
-    p = GitCommand(project,
-                   ['rev-parse', '--abbrev-ref', 'HEAD'],
-                   capture_stdout=True,
-                   capture_stderr=True)
-    p.Wait()
-    local_branch = p.stdout.strip()
+  def _GetMergeBranch(self, project, local_branch=None):
+    if local_branch is None:
+      p = GitCommand(project,
+                     ['rev-parse', '--abbrev-ref', 'HEAD'],
+                     capture_stdout=True,
+                     capture_stderr=True)
+      p.Wait()
+      local_branch = p.stdout.strip()
     p = GitCommand(project,
                    ['config', '--get', 'branch.%s.merge' % local_branch],
                    capture_stdout=True,
@@ -584,9 +621,8 @@ Gerrit Code Review:  https://www.gerritcodereview.com/
       hook = RepoHook.FromSubcmd(
           hook_type='pre-upload', manifest=manifest,
           opt=opt, abort_if_user_denies=True)
-      if not hook.Run(
-          project_list=pending_proj_names,
-          worktree_list=pending_worktrees):
+      if not hook.Run(project_list=pending_proj_names,
+                      worktree_list=pending_worktrees):
         ret = 1
     if ret:
       return ret

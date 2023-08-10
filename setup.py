@@ -17,12 +17,16 @@
 
 from setuptools import setup, find_packages
 
-with open("README.md", "r") as fh:
-    long_description = fh.read()
+with open("README.md", "r") as fp:
+    lines = fp.read().splitlines()[2:]
+    end = lines.index('')
+    long_description = ' '.join(lines[0:end])
+
+
 
 setup(
   name="gitrepo",
-  version="2.31.1",
+  version="2.32",
   packages=find_packages(),
 
   package_data={
@@ -32,16 +36,16 @@ setup(
   },
 
   # metadata for upload to PyPI
-  author="git-repo contributors",
-  author_email="repo-discuss@googlegroups.com",
-  description="Repo helps manage many Git repositories, does the uploads to revision control systems, and automates parts of the development workflow.",
+  maintainer='Various',
+  maintainer_email='repo-discuss@googlegroups.com',
+  description='Repo helps manage many Git repositories',
   long_description=long_description,
-  long_description_content_type="text/markdown",
+  long_description_content_type='text/plain',
   license="Apache",
   keywords="git repo android workflow",
   url="https://gerrit.googlesource.com/git-repo/",
   project_urls={
-      'Bug Tracker': 'https://bugs.chromium.org/p/gerrit/issues/list?q=component:repo',
+      'Bug Tracker': 'https://bugs.chromium.org/p/gerrit/issues/list?q=component:Applications%3Erepo',
   },
   # https://pypi.org/classifiers/
   classifiers=[
@@ -53,6 +57,9 @@ setup(
       'Operating System :: MacOS :: MacOS X',
       'Operating System :: Microsoft :: Windows :: Windows 10',
       'Operating System :: POSIX :: Linux',
+      'Operating System :: POSIX :: Linux',
+      'Programming Language :: Python :: 3',
+      'Programming Language :: Python :: 3 :: Only',
       'Topic :: Software Development :: Version Control :: Git',
   ],
   # We support Python 3.6+.

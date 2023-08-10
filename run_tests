@@ -41,7 +41,6 @@ def find_pytest():
   print('%s: Try installing: sudo apt-get install python-pytest' % (__file__,),
         file=sys.stderr)
 
-
 def main(argv):
   """The main entry."""
   # Add the repo tree to PYTHONPATH as the tests expect to be able to import
@@ -54,7 +53,6 @@ def main(argv):
 
   pytest = find_pytest()
   return subprocess.run([pytest] + argv, check=False).returncode
-
 
 if __name__ == '__main__':
   sys.exit(main(sys.argv[1:]))

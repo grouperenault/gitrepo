@@ -23,7 +23,7 @@ import xml.dom.minidom
 import urllib.parse
 
 from repo import gitc_utils
-from repo.git_config import GitConfig, IsId
+from repo.git_config import GitConfig
 from repo.git_refs import R_HEADS, HEAD
 from repo.git_superproject import Superproject
 from repo import platform_utils
