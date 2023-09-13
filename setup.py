@@ -26,7 +26,7 @@ with open("README.md", "r") as fp:
 
 setup(
   name="gitrepo",
-  version="2.32",
+  version="2.32.2",
   packages=find_packages(),
 
   package_data={
